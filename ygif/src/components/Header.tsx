@@ -3,11 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ThemeSwitcher } from './ThemeProvider';
-import { Search, Download, Youtube } from 'lucide-react';
+import { Search, Download, Scissors, ShoppingCart, Youtube } from 'lucide-react';
 
 const navItems = [
     { href: '/', label: 'Search', icon: Search },
     { href: '/download', label: 'Download', icon: Download },
+    { href: '/edit', label: 'Edit', icon: Scissors },
+    { href: '/coupang', label: 'Coupang', icon: ShoppingCart },
 ];
 
 export function Header() {
@@ -37,8 +39,8 @@ export function Header() {
                                     key={href}
                                     href={href}
                                     className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${isActive
-                                            ? 'bg-white/10 text-white'
-                                            : 'text-gray-400 hover:text-white hover:bg-white/5'
+                                        ? 'bg-white/10 text-white'
+                                        : 'text-gray-400 hover:text-white hover:bg-white/5'
                                         }`}
                                 >
                                     <Icon className="w-4 h-4" />
