@@ -13,6 +13,7 @@
     "@ffmpeg/util": "^0.12.2",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^7.2.0",
+    "@supabase/supabase-js": "^2.90.0",
     "@tanstack/react-table": "^8.21.3",
     "axios": "^1.13.2",
     "lucide-react": "^0.562.0",

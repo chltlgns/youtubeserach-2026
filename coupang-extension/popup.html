@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coupang Price Tracker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            width: 300px;
+            padding: 16px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+        }
+        h1 {
+            font-size: 16px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status {
+            background: rgba(255,255,255,0.1);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            font-size: 13px;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+        .status-item:last-child {
+            margin-bottom: 0;
+        }
+        .status-value {
+            font-weight: bold;
+            color: #4ade80;
+        }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .info {
+            font-size: 11px;
+            color: rgba(255,255,255,0.6);
+            text-align: center;
+            margin-top: 8px;
+        }
+        .processing {
+            color: #fbbf24;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛒 Coupang Price Tracker</h1>
+    
+    <div class="status">
+        <div class="status-item">
+            <span>상태:</span>
+            <span class="status-value" id="status">대기 중</span>
+        </div>
+        <div class="status-item">
+            <span>수집 완료:</span>
+            <span class="status-value" id="collected">0</span>
+        </div>
+        <div class="status-item">
+            <span>남은 작업:</span>
+            <span class="status-value" id="pending">0</span>
+        </div>
+    </div>
+
+    <button class="btn btn-primary" id="checkBtn">현재 페이지 스크래핑</button>
+    <button class="btn btn-secondary" id="statusBtn">상태 새로고침</button>
+
+    <p class="info">
+        YGIF 페이지에서 "전체 업데이트" 버튼을 클릭하세요
+    </p>
+
+    <script src="popup.js"></script>
+</body>
+</html>
