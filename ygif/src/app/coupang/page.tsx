@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ShoppingCart, RefreshCw, Trash2, Download, Plus, Zap, Loader2, LogIn, LogOut, User } from 'lucide-react';
+import { ShoppingCart, RefreshCw, Trash2, Download, Plus, Zap, Loader2, LogIn, LogOut, User, BarChart3, Star } from 'lucide-react';
 import { supabase, CoupangProductDB } from '@/lib/supabase';
 import AuthModal from '@/components/auth/AuthModal';
+import PriceHistoryModal from '@/components/coupang/PriceHistoryModal';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
 // Types
@@ -16,6 +17,9 @@ interface CoupangProduct {
     discountRate: string;
     previousPrice?: number;
     priceChangeRate?: string;
+    rating?: number | null;
+    reviewCount?: number | null;
+    monthlyPurchases?: number | null;
     lastUpdated: string;
 }
 
@@ -38,6 +42,8 @@ export default function CoupangPage() {
     const [updateProgress, setUpdateProgress] = useState('');
     const [user, setUser] = useState<SupabaseUser | null>(null);
     const [showAuthModal, setShowAuthModal] = useState(false);
+    const [showPriceHistoryModal, setShowPriceHistoryModal] = useState(false);
+    const [selectedProduct, setSelectedProduct] = useState<CoupangProduct | null>(null);
 
     // Check auth state
     useEffect(() => {
@@ -78,6 +84,9 @@ export default function CoupangPage() {
                 discountRate: p.discount_rate,
                 previousPrice: p.previous_price ?? undefined,
                 priceChangeRate: p.price_change_rate ?? undefined,
+                rating: p.rating ?? undefined,
+                reviewCount: p.review_count ?? undefined,
+                monthlyPurchases: p.monthly_purchases ?? undefined,
                 lastUpdated: p.last_updated,
             }));
 
@@ -558,52 +567,91 @@ export default function CoupangPage() {
                             <table className="w-full">
                                 <thead>
                                     <tr className="bg-white/5 border-b border-white/10">
-                                        <th className="px-4 py-3 text-left text-sm font-semibold">제품명</th>
-                                        <th className="px-4 py-3 text-right text-sm font-semibold">현재가격</th>
-                                        <th className="px-4 py-3 text-right text-sm font-semibold">원래가격</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold">할인율</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold">전일대비</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold">작업</th>
+                                        <th className="px-3 py-3 text-left text-sm font-semibold" style={{ maxWidth: '250px' }}>제품명</th>
+                                        <th className="px-3 py-3 text-right text-sm font-semibold">현재가격</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold">할인율</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold">전일대비</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold">별점</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold">리뷰</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold">그래프</th>
+                                        <th className="px-3 py-3 text-center text-sm font-semibold">삭제</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {products.length === 0 ? (
                                         <tr>
-                                            <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
+                                            <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                                                 추적 중인 제품이 없습니다. 위에서 제품을 추가해주세요.
                                             </td>
                                         </tr>
                                     ) : (
                                         products.map((product) => (
                                             <tr key={product.id} className="border-b border-white/5 hover:bg-white/5">
-                                                <td className="px-4 py-3">
+                                                {/* 제품명 - 축소 */}
+                                                <td className="px-3 py-3" style={{ maxWidth: '250px' }}>
                                                     <a
                                                         href={product.url}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
-                                                        className="text-blue-400 hover:underline line-clamp-2"
+                                                        className="text-blue-400 hover:underline block truncate"
+                                                        title={product.productName}
                                                     >
-                                                        {product.productName}
+                                                        {product.productName.length > 40
+                                                            ? product.productName.substring(0, 40) + '...'
+                                                            : product.productName}
                                                     </a>
                                                     <p className="text-xs text-gray-500 mt-1">
-                                                        업데이트: {new Date(product.lastUpdated).toLocaleString('ko-KR')}
+                                                        {new Date(product.lastUpdated).toLocaleDateString('ko-KR')}
                                                     </p>
                                                 </td>
-                                                <td className="px-4 py-3 text-right font-bold text-red-400">
+                                                {/* 현재가격 */}
+                                                <td className="px-3 py-3 text-right font-bold text-red-400 whitespace-nowrap">
                                                     {formatPrice(product.currentPrice)}
                                                 </td>
-                                                <td className="px-4 py-3 text-right text-gray-400 line-through">
-                                                    {formatPrice(product.originalPrice)}
-                                                </td>
-                                                <td className="px-4 py-3 text-center">
+                                                {/* 할인율 */}
+                                                <td className="px-3 py-3 text-center">
                                                     <span className="px-2 py-1 bg-red-500/20 text-red-400 rounded text-sm">
                                                         {product.discountRate}
                                                     </span>
                                                 </td>
-                                                <td className={`px-4 py-3 text-center font-semibold ${getPriceChangeColor(product.priceChangeRate)}`}>
+                                                {/* 전일대비 */}
+                                                <td className={`px-3 py-3 text-center font-semibold ${getPriceChangeColor(product.priceChangeRate)}`}>
                                                     {product.priceChangeRate || '-'}
                                                 </td>
-                                                <td className="px-4 py-3 text-center">
+                                                {/* 별점 */}
+                                                <td className="px-3 py-3 text-center">
+                                                    {product.rating ? (
+                                                        <span className="inline-flex items-center gap-1 text-yellow-400 text-sm">
+                                                            <Star className="w-3 h-3 fill-current" />
+                                                            {product.rating.toFixed(1)}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-gray-500 text-sm">-</span>
+                                                    )}
+                                                </td>
+                                                {/* 리뷰 */}
+                                                <td className="px-3 py-3 text-center text-sm text-gray-400">
+                                                    {product.reviewCount ? (
+                                                        <span>{product.reviewCount.toLocaleString()}</span>
+                                                    ) : (
+                                                        <span className="text-gray-500">-</span>
+                                                    )}
+                                                </td>
+                                                {/* 그래프 */}
+                                                <td className="px-3 py-3 text-center">
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedProduct(product);
+                                                            setShowPriceHistoryModal(true);
+                                                        }}
+                                                        className="p-2 hover:bg-blue-500/20 rounded-lg transition-colors text-blue-400"
+                                                        title="가격 변동 그래프"
+                                                    >
+                                                        <BarChart3 className="w-4 h-4" />
+                                                    </button>
+                                                </td>
+                                                {/* 삭제 */}
+                                                <td className="px-3 py-3 text-center">
                                                     <button
                                                         onClick={() => handleDelete(product.id)}
                                                         className="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-red-400"
@@ -619,6 +667,19 @@ export default function CoupangPage() {
                         </div>
                     </div>
                 </>
+            )}
+
+            {/* Price History Modal */}
+            {showPriceHistoryModal && selectedProduct && (
+                <PriceHistoryModal
+                    productId={selectedProduct.id}
+                    productName={selectedProduct.productName}
+                    currentPrice={selectedProduct.currentPrice}
+                    onClose={() => {
+                        setShowPriceHistoryModal(false);
+                        setSelectedProduct(null);
+                    }}
+                />
             )}
         </div>
     );

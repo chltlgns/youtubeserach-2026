@@ -154,14 +154,56 @@
             discountRate = Math.round((1 - currentPrice / originalPrice) * 100) + '%';
         }
 
+        // 별점 추출 (예: 4.5)
+        let rating = null;
+        const ratingEl = document.querySelector('.rating-star-container .rating') ||
+            document.querySelector('.prod-review-rate span:first-child');
+        if (ratingEl) {
+            const ratingText = ratingEl.textContent.trim();
+            rating = parseFloat(ratingText) || null;
+        }
+        // 별 개수로 추출 시도
+        if (!rating) {
+            const stars = document.querySelectorAll('.rating-star-container .star-on, .rating-star .fill');
+            if (stars.length > 0) {
+                rating = stars.length;
+            }
+        }
+
+        // 리뷰 수 추출 (예: (538))
+        let reviewCount = null;
+        const reviewEl = document.querySelector('.rating-star-container .count') ||
+            document.querySelector('.rating-star-container span:last-child') ||
+            document.querySelector('.prod-review-rate > .count');
+        if (reviewEl) {
+            const countText = reviewEl.textContent.replace(/[^0-9]/g, '');
+            reviewCount = parseInt(countText) || null;
+        }
+
+        // 월간 구매수 추출 (예: "400명 이상 만족했어요")
+        let monthlyPurchases = null;
+        const satisfactionEl = document.querySelector('.like-text') ||
+            document.querySelector('.prod-satisfaction span');
+        if (satisfactionEl) {
+            const text = satisfactionEl.textContent;
+            const match = text.match(/(\d+)명/);
+            if (match) {
+                monthlyPurchases = parseInt(match[1]) || null;
+            }
+        }
+
         return {
             url: window.location.href.split('?')[0],
             product_name: productName,
             current_price: currentPrice,
             original_price: originalPrice,
-            discount_rate: discountRate
+            discount_rate: discountRate,
+            rating: rating,
+            review_count: reviewCount,
+            monthly_purchases: monthlyPurchases
         };
     }
+
 
     // 알림 표시
     function showNotification(title, text, isSuccess = true) {
@@ -264,6 +306,9 @@
                             discount_rate: productData.discount_rate,
                             previous_price: existingProduct.current_price,
                             price_change_rate: priceChange,
+                            rating: productData.rating,
+                            review_count: productData.review_count,
+                            monthly_purchases: productData.monthly_purchases,
                             last_updated: new Date().toISOString()
                         }),
                         onload: function (res) {
@@ -300,6 +345,9 @@
                             discount_rate: productData.discount_rate,
                             previous_price: null,
                             price_change_rate: null,
+                            rating: productData.rating,
+                            review_count: productData.review_count,
+                            monthly_purchases: productData.monthly_purchases,
                             last_updated: new Date().toISOString()
                         }),
                         onload: function (res) {

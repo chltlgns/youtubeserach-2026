@@ -16,6 +16,18 @@ export interface CoupangProductDB {
     discount_rate: string;
     previous_price: number | null;
     price_change_rate: string | null;
+    rating: number | null;
+    review_count: number | null;
+    monthly_purchases: number | null;
     last_updated: string;
     created_at: string;
 }
+
+export interface PriceHistoryDB {
+    id: string;
+    product_id: string;
+    price: number;
+    recorded_date: string;
+    created_at: string;
+}
+
