@@ -14,6 +14,7 @@ export interface DownloadResponse {
     format?: string;
     size?: string;
     error?: string;
+    download_url?: string;
 }
 
 export async function POST(request: NextRequest) {

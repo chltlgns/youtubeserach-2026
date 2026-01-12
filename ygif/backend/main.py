@@ -11,8 +11,10 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import yt_dlp
+import urllib.parse
 
 app = FastAPI(
     title="YGIF yt-dlp Backend",
@@ -46,6 +48,7 @@ class DownloadResponse(BaseModel):
     size: Optional[str] = None
     error: Optional[str] = None
     download_path: Optional[str] = None
+    download_url: Optional[str] = None
 
 
 class DownloadInfo(BaseModel):
@@ -144,12 +147,15 @@ async def download_video(request: DownloadRequest):
             download_info.filename = result.get("filename", "")
             download_history.append(download_info)
             
+            filename = result.get("filename")
+            encoded_filename = urllib.parse.quote(filename) if filename else None
             return DownloadResponse(
                 success=True,
-                filename=result.get("filename"),
+                filename=filename,
                 format=result.get("format"),
                 size=result.get("size"),
                 download_path=DOWNLOAD_PATH,
+                download_url=f"/download-file/{encoded_filename}" if encoded_filename else None,
             )
         else:
             download_info.status = "failed"
@@ -215,6 +221,23 @@ async def get_downloads():
         "downloads": download_history[-50:],  # Last 50 downloads
         "total": len(download_history),
     }
+
+
+@app.get("/download-file/{filename:path}")
+async def serve_download_file(filename: str):
+    """Serve a downloaded file for browser download"""
+    # URL decode the filename
+    decoded_filename = urllib.parse.unquote(filename)
+    file_path = os.path.join(DOWNLOAD_PATH, decoded_filename)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    return FileResponse(
+        path=file_path,
+        filename=decoded_filename,
+        media_type="application/octet-stream",
+    )
 
 
 @app.delete("/downloads/{download_id}")

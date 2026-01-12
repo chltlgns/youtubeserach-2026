@@ -1,11 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ShoppingCart, RefreshCw, Trash2, Download, Plus, Zap, Loader2, LogIn, LogOut, User, BarChart3, Star } from 'lucide-react';
+import { ShoppingCart, RefreshCw, Trash2, Download, Plus, Zap, Loader2, LogIn, LogOut, User, BarChart3, Star, ArrowUpDown, ChevronUp, ChevronDown, Users } from 'lucide-react';
 import { supabase, CoupangProductDB } from '@/lib/supabase';
 import AuthModal from '@/components/auth/AuthModal';
 import PriceHistoryModal from '@/components/coupang/PriceHistoryModal';
 import { User as SupabaseUser } from '@supabase/supabase-js';
+
+// Sort types
+type SortField = 'productName' | 'currentPrice' | 'discountRate' | 'priceChangeRate' | 'rating' | 'reviewCount' | 'monthlyPurchases' | 'lastUpdated' | null;
+type SortDirection = 'asc' | 'desc';
 
 // Types
 interface CoupangProduct {
@@ -44,6 +48,8 @@ export default function CoupangPage() {
     const [showAuthModal, setShowAuthModal] = useState(false);
     const [showPriceHistoryModal, setShowPriceHistoryModal] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState<CoupangProduct | null>(null);
+    const [sortField, setSortField] = useState<SortField>(null);
+    const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
     // Check auth state
     useEffect(() => {
@@ -112,23 +118,34 @@ export default function CoupangPage() {
         }
     }, [loadProducts]);
 
-    // 순차 업데이트 진행 확인 (뒤로 가기로 돌아왔을 때)
+    // 순차 업데이트 진행 확인 (뒤로 가기로 돌아왔을 때만)
     useEffect(() => {
-        // 이미 처리중인지 확인
+        // 업데이트 진행 중 플래그 확인 (뒤로 가기로 돌아온 경우만 처리)
+        const isInProgress = sessionStorage.getItem('coupang_update_in_progress');
+        if (!isInProgress) {
+            // 업데이트 중이 아니면 localStorage 큐도 정리
+            localStorage.removeItem('coupang_update_queue');
+            localStorage.removeItem('coupang_update_index');
+            return;
+        }
+
+        // 이미 처리중인지 확인 (중복 방지)
         const processingKey = 'coupang_update_processing';
         if (sessionStorage.getItem(processingKey)) {
-            return; // 이미 처리 중
+            return;
         }
 
         const queueStr = localStorage.getItem('coupang_update_queue');
         const indexStr = localStorage.getItem('coupang_update_index');
 
-        if (!queueStr || indexStr === null) return;
+        if (!queueStr || indexStr === null) {
+            sessionStorage.removeItem('coupang_update_in_progress');
+            return;
+        }
 
         const urls = JSON.parse(queueStr) as string[];
         const currentIndex = parseInt(indexStr);
 
-        // 현재 인덱스가 -1이면 아직 시작 안함 (handleAutoUpdate에서 처리)
         if (currentIndex < 0) return;
 
         // 처리 시작 표시
@@ -144,6 +161,7 @@ export default function CoupangPage() {
             localStorage.removeItem('coupang_update_queue');
             localStorage.removeItem('coupang_update_index');
             sessionStorage.removeItem(processingKey);
+            sessionStorage.removeItem('coupang_update_in_progress');
 
             // 완료 알림 설정 (새로고침 후 표시)
             sessionStorage.setItem('coupang_update_complete', urls.length.toString());
@@ -197,6 +215,78 @@ export default function CoupangPage() {
         if (change.startsWith('+')) return 'text-red-400';
         if (change.startsWith('-')) return 'text-green-400';
         return 'text-gray-400';
+    };
+
+    // Sort handler
+    const handleSort = (field: SortField) => {
+        if (sortField === field) {
+            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortField(field);
+            setSortDirection('desc');
+        }
+    };
+
+    // Sorted products - 정렬이 없으면 원래 순서(생성일 내림차순) 유지
+    const sortedProducts = sortField === null ? products : [...products].sort((a, b) => {
+        let aVal: number | string | null | undefined;
+        let bVal: number | string | null | undefined;
+
+        switch (sortField) {
+            case 'productName':
+                aVal = a.productName;
+                bVal = b.productName;
+                break;
+            case 'currentPrice':
+                aVal = a.currentPrice;
+                bVal = b.currentPrice;
+                break;
+            case 'discountRate':
+                aVal = parseInt(a.discountRate) || 0;
+                bVal = parseInt(b.discountRate) || 0;
+                break;
+            case 'priceChangeRate':
+                aVal = parseFloat(a.priceChangeRate?.replace(/[+%]/g, '') || '0');
+                bVal = parseFloat(b.priceChangeRate?.replace(/[+%]/g, '') || '0');
+                break;
+            case 'rating':
+                aVal = a.rating ?? 0;
+                bVal = b.rating ?? 0;
+                break;
+            case 'reviewCount':
+                aVal = a.reviewCount ?? 0;
+                bVal = b.reviewCount ?? 0;
+                break;
+            case 'monthlyPurchases':
+                aVal = a.monthlyPurchases ?? 0;
+                bVal = b.monthlyPurchases ?? 0;
+                break;
+            case 'lastUpdated':
+            default:
+                aVal = new Date(a.lastUpdated).getTime();
+                bVal = new Date(b.lastUpdated).getTime();
+                break;
+        }
+
+        if (typeof aVal === 'string' && typeof bVal === 'string') {
+            return sortDirection === 'asc'
+                ? aVal.localeCompare(bVal, 'ko')
+                : bVal.localeCompare(aVal, 'ko');
+        }
+
+        const numA = Number(aVal) || 0;
+        const numB = Number(bVal) || 0;
+        return sortDirection === 'asc' ? numA - numB : numB - numA;
+    });
+
+    // Sort icon component
+    const SortIcon = ({ field }: { field: Exclude<SortField, null> }) => {
+        if (sortField !== field) {
+            return <ArrowUpDown className="w-3 h-3 ml-1 opacity-50" />;
+        }
+        return sortDirection === 'asc'
+            ? <ChevronUp className="w-3 h-3 ml-1 text-blue-400" />
+            : <ChevronDown className="w-3 h-3 ml-1 text-blue-400" />;
     };
 
     // Parse input data
@@ -325,8 +415,12 @@ export default function CoupangPage() {
         localStorage.setItem('coupang_update_queue', JSON.stringify(urls));
         localStorage.setItem('coupang_update_index', '0');
 
+        // 업데이트 진행 중 플래그 설정 (페이지 리로드 시 자동 이동 허용)
+        sessionStorage.setItem('coupang_update_in_progress', 'true');
+
         console.log('[YGIF] 순차 업데이트 시작, URL 개수:', urls.length);
         setUpdateProgress(`업데이트 중: 1/${urls.length}`);
+        setIsUpdating(true);
 
         // 첫 번째 제품으로 이동
         window.location.href = urls[0];
@@ -567,25 +661,83 @@ export default function CoupangPage() {
                             <table className="w-full">
                                 <thead>
                                     <tr className="bg-white/5 border-b border-white/10">
-                                        <th className="px-3 py-3 text-left text-sm font-semibold" style={{ maxWidth: '250px' }}>제품명</th>
-                                        <th className="px-3 py-3 text-right text-sm font-semibold">현재가격</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold">할인율</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold">전일대비</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold">별점</th>
-                                        <th className="px-3 py-3 text-center text-sm font-semibold">리뷰</th>
+                                        <th
+                                            className="px-3 py-3 text-left text-sm font-semibold cursor-pointer hover:bg-white/10"
+                                            style={{ maxWidth: '250px' }}
+                                            onClick={() => handleSort('productName')}
+                                        >
+                                            <span className="inline-flex items-center">
+                                                제품명
+                                                <SortIcon field="productName" />
+                                            </span>
+                                        </th>
+                                        <th
+                                            className="px-3 py-3 text-right text-sm font-semibold cursor-pointer hover:bg-white/10"
+                                            onClick={() => handleSort('currentPrice')}
+                                        >
+                                            <span className="inline-flex items-center justify-end">
+                                                현재가격
+                                                <SortIcon field="currentPrice" />
+                                            </span>
+                                        </th>
+                                        <th
+                                            className="px-3 py-3 text-center text-sm font-semibold cursor-pointer hover:bg-white/10"
+                                            onClick={() => handleSort('discountRate')}
+                                        >
+                                            <span className="inline-flex items-center justify-center">
+                                                할인율
+                                                <SortIcon field="discountRate" />
+                                            </span>
+                                        </th>
+                                        <th
+                                            className="px-3 py-3 text-center text-sm font-semibold cursor-pointer hover:bg-white/10"
+                                            onClick={() => handleSort('priceChangeRate')}
+                                        >
+                                            <span className="inline-flex items-center justify-center">
+                                                전일대비
+                                                <SortIcon field="priceChangeRate" />
+                                            </span>
+                                        </th>
+                                        <th
+                                            className="px-3 py-3 text-center text-sm font-semibold cursor-pointer hover:bg-white/10"
+                                            onClick={() => handleSort('rating')}
+                                        >
+                                            <span className="inline-flex items-center justify-center">
+                                                별점
+                                                <SortIcon field="rating" />
+                                            </span>
+                                        </th>
+                                        <th
+                                            className="px-3 py-3 text-center text-sm font-semibold cursor-pointer hover:bg-white/10"
+                                            onClick={() => handleSort('reviewCount')}
+                                        >
+                                            <span className="inline-flex items-center justify-center">
+                                                리뷰
+                                                <SortIcon field="reviewCount" />
+                                            </span>
+                                        </th>
+                                        <th
+                                            className="px-3 py-3 text-center text-sm font-semibold cursor-pointer hover:bg-white/10"
+                                            onClick={() => handleSort('monthlyPurchases')}
+                                        >
+                                            <span className="inline-flex items-center justify-center">
+                                                구매수
+                                                <SortIcon field="monthlyPurchases" />
+                                            </span>
+                                        </th>
                                         <th className="px-3 py-3 text-center text-sm font-semibold">그래프</th>
                                         <th className="px-3 py-3 text-center text-sm font-semibold">삭제</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {products.length === 0 ? (
+                                    {sortedProducts.length === 0 ? (
                                         <tr>
-                                            <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
+                                            <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
                                                 추적 중인 제품이 없습니다. 위에서 제품을 추가해주세요.
                                             </td>
                                         </tr>
                                     ) : (
-                                        products.map((product) => (
+                                        sortedProducts.map((product) => (
                                             <tr key={product.id} className="border-b border-white/5 hover:bg-white/5">
                                                 {/* 제품명 - 축소 */}
                                                 <td className="px-3 py-3" style={{ maxWidth: '250px' }}>
@@ -633,6 +785,17 @@ export default function CoupangPage() {
                                                 <td className="px-3 py-3 text-center text-sm text-gray-400">
                                                     {product.reviewCount ? (
                                                         <span>{product.reviewCount.toLocaleString()}</span>
+                                                    ) : (
+                                                        <span className="text-gray-500">-</span>
+                                                    )}
+                                                </td>
+                                                {/* 월간 구매수 */}
+                                                <td className="px-3 py-3 text-center text-sm">
+                                                    {product.monthlyPurchases ? (
+                                                        <span className="inline-flex items-center gap-1 text-green-400">
+                                                            <Users className="w-3 h-3" />
+                                                            {product.monthlyPurchases.toLocaleString()}
+                                                        </span>
                                                     ) : (
                                                         <span className="text-gray-500">-</span>
                                                     )}

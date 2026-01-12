@@ -10,6 +10,7 @@ interface DownloadResult {
     format?: string;
     size?: string;
     error?: string;
+    download_url?: string;
 }
 
 export default function DownloadPage() {
@@ -31,6 +32,17 @@ export default function DownloadPage() {
                 format,
             });
             setResult(response.data);
+
+            // Auto-trigger browser download if successful
+            if (response.data.success && response.data.download_url) {
+                const backendUrl = process.env.NEXT_PUBLIC_YTDLP_BACKEND_URL || 'http://localhost:8000';
+                const downloadLink = document.createElement('a');
+                downloadLink.href = `${backendUrl}${response.data.download_url}`;
+                downloadLink.download = response.data.filename || 'download';
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+            }
         } catch (err) {
             if (axios.isAxiosError(err)) {
                 setResult({
@@ -127,8 +139,8 @@ export default function DownloadPage() {
             {result && (
                 <div
                     className={`mt-8 p-6 rounded-xl border ${result.success
-                            ? 'bg-green-500/10 border-green-500/30'
-                            : 'bg-red-500/10 border-red-500/30'
+                        ? 'bg-green-500/10 border-green-500/30'
+                        : 'bg-red-500/10 border-red-500/30'
                         }`}
                 >
                     <div className="flex items-start gap-4">

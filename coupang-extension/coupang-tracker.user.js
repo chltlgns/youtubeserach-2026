@@ -27,13 +27,39 @@
 
     // ========== 인증 토큰 ==========
     let AUTH_TOKEN = GM_getValue('auth_token', null) || {
-        "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFhY2ZkZGM4LWQwY2QtNDIzOC1iNjg1LTJhN2Y4OTVkMmI1OSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL3JtYm93YnF4ZHJ5bmRzZWtvYm1oLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiI4OGM0ZDg5OC0yNGRjLTQwMDMtYWVkMC0yZmU0M2Q1YjM5MDUiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzY3ODUzMzc5LCJpYXQiOjE3Njc4NDk3NzksImVtYWlsIjoiY2hsdGxnbnM5MjBAZ21haWwuY29tIiwicGhvbmUiOiIiLCJhcHBfbWV0YWRhdGEiOnsicHJvdmlkZXIiOiJlbWFpbCIsInByb3ZpZGVycyI6WyJlbWFpbCJdfSwidXNlcl9tZXRhZGF0YSI6eyJlbWFpbCI6ImNobHRsZ25zOTIwQGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJwaG9uZV92ZXJpZmllZCI6ZmFsc2UsInN1YiI6Ijg4YzRkODk4LTI0ZGMtNDAwMy1hZWQwLTJmZTQzZDViMzkwNSJ9LCJyb2xlIjoiYXV0aGVudGljYXRlZCIsImFhbCI6ImFhbDEiLCJhbXIiOlt7Im1ldGhvZCI6InBhc3N3b3JkIiwidGltZXN0YW1wIjoxNzY3ODQ5Nzc5fV0sInNlc3Npb25faWQiOiI5MGU1MjFkMS1kZWJhLTRjNmMtYWExYy02NDA4NjAxOTlhZGIiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.zKt9tmJVj_9Ej1qCJL53bbjL0_blm2H6JB2JbfBKq2xpHOiwLF4mkbT6bbVpIpV6QTG6BelZLDTWD18YyFngcg",
-        "refresh_token": "rafmhkvatp5j",
+        "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFhY2ZkZGM4LWQwY2QtNDIzOC1iNjg1LTJhN2Y4OTVkMmI1OSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL3JtYm93YnF4ZHJ5bmRzZWtvYm1oLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiI4OGM0ZDg5OC0yNGRjLTQwMDMtYWVkMC0yZmU0M2Q1YjM5MDUiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzY3ODU5NjQ0LCJpYXQiOjE3Njc4NTYwNDQsImVtYWlsIjoiY2hsdGxnbnM5MjBAZ21haWwuY29tIiwicGhvbmUiOiIiLCJhcHBfbWV0YWRhdGEiOnsicHJvdmlkZXIiOiJlbWFpbCIsInByb3ZpZGVycyI6WyJlbWFpbCJdfSwidXNlcl9tZXRhZGF0YSI6eyJlbWFpbCI6ImNobHRsZ25zOTIwQGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJwaG9uZV92ZXJpZmllZCI6ZmFsc2UsInN1YiI6Ijg4YzRkODk4LTI0ZGMtNDAwMy1hZWQwLTJmZTQzZDViMzkwNSJ9LCJyb2xlIjoiYXV0aGVudGljYXRlZCIsImFhbCI6ImFhbDEiLCJhbXIiOlt7Im1ldGhvZCI6InBhc3N3b3JkIiwidGltZXN0YW1wIjoxNzY3ODU2MDQ0fV0sInNlc3Npb25faWQiOiI3MzY3NjhlNC1kOThhLTQyMDktOTgwZC0zZDM5ZDIwNTZlNzciLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.SjUhZuwjfXRTgKd_se1byOEhWadKEo_V0H8ZGTTfnAR7xsSxB9fGCWDorHBqXGW71Ga3pNnzy7WbjmPfivqFcA",
+        "refresh_token": "ipxwmzs44jvd",
         "user": {
             "id": "88c4d898-24dc-4003-aed0-2fe43d5b3905"
         }
     };
     // =============================================
+
+    // JWT 토큰 만료 확인 (5분 여유)
+    function isTokenExpiredOrSoon() {
+        if (!AUTH_TOKEN || !AUTH_TOKEN.access_token) return true;
+
+        try {
+            // JWT는 점으로 구분된 3부분: header.payload.signature
+            const parts = AUTH_TOKEN.access_token.split('.');
+            if (parts.length !== 3) return true;
+
+            // payload를 base64 디코딩
+            const payload = JSON.parse(atob(parts[1]));
+            const exp = payload.exp; // 만료 시간 (Unix timestamp in seconds)
+            const now = Math.floor(Date.now() / 1000); // 현재 시간 (seconds)
+
+            // 5분(300초) 전에 미리 갱신
+            const expiresIn = exp - now;
+            console.log(`[Coupang Tracker] 토큰 만료까지: ${expiresIn}초 (${Math.floor(expiresIn / 60)}분)`);
+
+            return expiresIn < 300; // 5분 미만이면 갱신 필요
+        } catch (e) {
+            console.log('[Coupang Tracker] 토큰 파싱 에러:', e);
+            return true;
+        }
+    }
+
 
     // YGIF 업데이트 큐 확인 (GM_getValue 사용 - 도메인 무관)
     function checkUpdateQueue() {
@@ -70,6 +96,115 @@
             window.history.back();
         }, 2000);
     }
+
+    // 가격 히스토리 저장 (하루에 한 번만) - 콜백 추가
+    function savePriceHistory(productId, price, accessToken, callback) {
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
+
+        console.log('[Coupang Tracker] 가격 히스토리 저장 시작...', { productId, price, today });
+
+        // 오늘 날짜에 이미 기록이 있는지 확인
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url: `${SUPABASE_URL}/rest/v1/price_history?product_id=eq.${productId}&recorded_date=eq.${today}&select=id`,
+            headers: {
+                'apikey': SUPABASE_ANON_KEY,
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            onload: function (response) {
+                console.log('[Coupang Tracker] 가격 히스토리 조회 응답:', response.status, response.responseText);
+
+                let existing = [];
+                try {
+                    existing = JSON.parse(response.responseText);
+                } catch (e) {
+                    console.log('[Coupang Tracker] 가격 히스토리 조회 파싱 에러:', e);
+                }
+
+                if (existing && existing.length > 0) {
+                    // 오늘 이미 기록됨 - 가격 업데이트
+                    console.log('[Coupang Tracker] 오늘 가격 히스토리 이미 존재, 업데이트');
+                    GM_xmlhttpRequest({
+                        method: 'PATCH',
+                        url: `${SUPABASE_URL}/rest/v1/price_history?id=eq.${existing[0].id}`,
+                        headers: {
+                            'apikey': SUPABASE_ANON_KEY,
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'return=minimal'
+                        },
+                        data: JSON.stringify({
+                            price: price
+                        }),
+                        onload: function (res) {
+                            if (res.status >= 200 && res.status < 300) {
+                                console.log('[Coupang Tracker] ✅ 가격 히스토리 업데이트됨');
+                            } else {
+                                console.log('[Coupang Tracker] ❌ 가격 히스토리 업데이트 실패:', res.responseText);
+                            }
+                            if (callback) callback();
+                        },
+                        onerror: function (err) {
+                            console.log('[Coupang Tracker] 가격 히스토리 업데이트 네트워크 에러:', err);
+                            if (callback) callback();
+                        }
+                    });
+                } else {
+                    // 새로운 가격 히스토리 추가
+                    console.log('[Coupang Tracker] 새 가격 히스토리 저장 시도...');
+                    GM_xmlhttpRequest({
+                        method: 'POST',
+                        url: `${SUPABASE_URL}/rest/v1/price_history`,
+                        headers: {
+                            'apikey': SUPABASE_ANON_KEY,
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'return=minimal'
+                        },
+                        data: JSON.stringify({
+                            product_id: productId,
+                            price: price,
+                            recorded_date: today
+                        }),
+                        onload: function (res) {
+                            if (res.status >= 200 && res.status < 300) {
+                                console.log('[Coupang Tracker] ✅ 가격 히스토리 저장됨');
+                            } else {
+                                console.log('[Coupang Tracker] ❌ 가격 히스토리 저장 실패:', res.status, res.responseText);
+                            }
+                            if (callback) callback();
+                        },
+                        onerror: function (err) {
+                            console.log('[Coupang Tracker] 가격 히스토리 저장 네트워크 에러:', err);
+                            if (callback) callback();
+                        }
+                    });
+                }
+            },
+            onerror: function (err) {
+                console.log('[Coupang Tracker] 가격 히스토리 확인 에러:', err);
+                if (callback) callback();
+            }
+        });
+    }
+
+    // 업데이트 중단하고 YGIF로 돌아가기 (에러 발생 시)
+    function stopUpdateAndGoBack(errorMessage) {
+        console.log('[Coupang Tracker] 업데이트 중단:', errorMessage);
+
+        // 업데이트 큐 정리
+        GM_setValue('coupang_update_queue', null);
+        GM_setValue('coupang_update_index', -1);
+
+        showNotification('❌ 업데이트 중단', errorMessage + '\n\nYGIF로 돌아갑니다...', false);
+
+        // 5초 후 YGIF로 이동
+        setTimeout(() => {
+            window.location.href = 'http://localhost:3000/coupang';
+        }, 5000);
+    }
+
 
     // 토큰 갱신
     function refreshAccessToken(callback) {
@@ -156,41 +291,74 @@
 
         // 별점 추출 (예: 4.5)
         let rating = null;
-        const ratingEl = document.querySelector('.rating-star-container .rating') ||
-            document.querySelector('.prod-review-rate span:first-child');
-        if (ratingEl) {
-            const ratingText = ratingEl.textContent.trim();
-            rating = parseFloat(ratingText) || null;
+        // 방법1: aria-label에서 추출 (가장 정확)
+        const ratingDiv = document.querySelector('.review-atf div[aria-label]');
+        if (ratingDiv) {
+            rating = parseFloat(ratingDiv.getAttribute('aria-label')) || null;
         }
-        // 별 개수로 추출 시도
+        // 방법2: 별 개수로 추출
         if (!rating) {
-            const stars = document.querySelectorAll('.rating-star-container .star-on, .rating-star .fill');
+            const stars = document.querySelectorAll('.review-atf svg');
             if (stars.length > 0) {
-                rating = stars.length;
+                rating = stars.length; // 채워진 별 개수
             }
         }
+        console.log('[Coupang Tracker] 추출된 별점:', rating);
 
         // 리뷰 수 추출 (예: (538))
         let reviewCount = null;
-        const reviewEl = document.querySelector('.rating-star-container .count') ||
-            document.querySelector('.rating-star-container span:last-child') ||
-            document.querySelector('.prod-review-rate > .count');
-        if (reviewEl) {
-            const countText = reviewEl.textContent.replace(/[^0-9]/g, '');
-            reviewCount = parseInt(countText) || null;
-        }
-
-        // 월간 구매수 추출 (예: "400명 이상 만족했어요")
-        let monthlyPurchases = null;
-        const satisfactionEl = document.querySelector('.like-text') ||
-            document.querySelector('.prod-satisfaction span');
-        if (satisfactionEl) {
-            const text = satisfactionEl.textContent;
-            const match = text.match(/(\d+)명/);
+        // 방법1: review-atf 내부의 괄호 안 숫자
+        const reviewAtf = document.querySelector('.review-atf');
+        if (reviewAtf) {
+            const text = reviewAtf.textContent;
+            const match = text.match(/\((\d+(?:,\d+)*)\)/);
             if (match) {
-                monthlyPurchases = parseInt(match[1]) || null;
+                reviewCount = parseInt(match[1].replace(/,/g, '')) || null;
             }
         }
+        console.log('[Coupang Tracker] 추출된 리뷰수:', reviewCount);
+
+        // 월간 구매수 추출 (예: "한 달간 100명 이상 구매했어요", "100+명이 구매했어요" 등)
+        let monthlyPurchases = null;
+
+        // 방법1: 모든 요소에서 "구매" 관련 텍스트 검색
+        const allElements = document.querySelectorAll('p, span, div, strong, em');
+        for (const el of allElements) {
+            const text = el.textContent?.trim() || '';
+            // "OOO명" 또는 "OOO+" 패턴 검색
+            if (text.includes('구매') || text.includes('명이') || text.includes('한 달')) {
+                // 패턴1: "100명", "1,000명"
+                let match = text.match(/(\d+(?:,\d+)*)\s*명/);
+                if (match) {
+                    monthlyPurchases = parseInt(match[1].replace(/,/g, '')) || null;
+                    if (monthlyPurchases) break;
+                }
+                // 패턴2: "100+" 형태
+                match = text.match(/(\d+(?:,\d+)*)\+/);
+                if (match) {
+                    monthlyPurchases = parseInt(match[1].replace(/,/g, '')) || null;
+                    if (monthlyPurchases) break;
+                }
+            }
+        }
+
+        // 방법2: 특정 클래스나 구조에서 검색 (쿠팡 구조 변경 대비)
+        if (!monthlyPurchases) {
+            const purchaseIndicators = document.querySelectorAll('[class*="purchase"], [class*="buyer"], [class*="sold"]');
+            for (const el of purchaseIndicators) {
+                const text = el.textContent?.trim() || '';
+                const match = text.match(/(\d+(?:,\d+)*)/);
+                if (match) {
+                    const num = parseInt(match[1].replace(/,/g, ''));
+                    if (num > 0 && num < 1000000) { // 합리적인 범위 체크
+                        monthlyPurchases = num;
+                        break;
+                    }
+                }
+            }
+        }
+
+        console.log('[Coupang Tracker] 추출된 월간 구매수:', monthlyPurchases);
 
         return {
             url: window.location.href.split('?')[0],
@@ -318,10 +486,11 @@
                                     '✅ 가격 업데이트됨',
                                     `${productData.product_name.substring(0, 25)}...\n💰 ${productData.current_price.toLocaleString()}원\n📊 ${changeText}`
                                 );
-                                // 저장 완료 - 뒤로 가기
-                                goBackToYGIF();
+                                // 가격 히스토리 저장 후 뒤로 가기
+                                savePriceHistory(existingProduct.id, productData.current_price, accessToken, goBackToYGIF);
                             } else {
-                                showNotification('❌ 업데이트 실패', res.responseText.substring(0, 100), false);
+                                // 실패 시 업데이트 중단하고 YGIF로
+                                stopUpdateAndGoBack('업데이트 실패: ' + res.responseText.substring(0, 80));
                             }
                         }
                     });
@@ -334,7 +503,7 @@
                             'apikey': SUPABASE_ANON_KEY,
                             'Authorization': `Bearer ${accessToken}`,
                             'Content-Type': 'application/json',
-                            'Prefer': 'return=minimal'
+                            'Prefer': 'return=representation' // 새로 생성된 제품 ID를 받기 위해 변경
                         },
                         data: JSON.stringify({
                             user_id: userId,
@@ -356,10 +525,21 @@
                                     '✅ 제품 추가됨',
                                     `${productData.product_name.substring(0, 25)}...\n💰 ${productData.current_price.toLocaleString()}원`
                                 );
-                                // 저장 완료 - 뒤로 가기
-                                goBackToYGIF();
+                                // 새로 생성된 제품의 ID로 가격 히스토리 저장 후 뒤로 가기
+                                try {
+                                    const newProduct = JSON.parse(res.responseText);
+                                    if (newProduct && newProduct.length > 0 && newProduct[0].id) {
+                                        savePriceHistory(newProduct[0].id, productData.current_price, accessToken, goBackToYGIF);
+                                    } else {
+                                        goBackToYGIF();
+                                    }
+                                } catch (e) {
+                                    console.log('[Coupang Tracker] 새 제품 ID 파싱 에러:', e);
+                                    goBackToYGIF();
+                                }
                             } else {
-                                showNotification('❌ 추가 실패', res.responseText.substring(0, 100), false);
+                                // 실패 시 업데이트 중단하고 YGIF로
+                                stopUpdateAndGoBack('추가 실패: ' + res.responseText.substring(0, 80));
                             }
                         }
                     });
@@ -378,8 +558,14 @@
     function setupYGIFIntegration() {
         console.log('[Coupang Tracker] YGIF 페이지 감지, 통합 설정 중...');
 
+        // YGIF localStorage에서 Supabase 토큰 동기화
+        syncTokenFromLocalStorage();
+
         // CustomEvent 리스너 (YGIF에서 이벤트 발생 시 처리)
         document.addEventListener('startCoupangUpdate', function (e) {
+            // 업데이트 시작 전 토큰 다시 동기화
+            syncTokenFromLocalStorage();
+
             const urls = e.detail.urls;
             if (!urls || urls.length === 0) {
                 alert('업데이트할 제품이 없습니다.');
@@ -413,6 +599,34 @@
         console.log('[Coupang Tracker] YGIF 통합 완료 - CustomEvent "startCoupangUpdate" 대기 중');
     }
 
+    // YGIF localStorage에서 Supabase 토큰을 GM_setValue로 동기화
+    function syncTokenFromLocalStorage() {
+        try {
+            // Supabase JS 클라이언트가 사용하는 localStorage 키 패턴
+            const supabaseKey = 'sb-rmbowbqxdryndsekobmh-auth-token';
+            const tokenStr = localStorage.getItem(supabaseKey);
+
+            if (tokenStr) {
+                const tokenData = JSON.parse(tokenStr);
+                if (tokenData && tokenData.access_token && tokenData.refresh_token) {
+                    AUTH_TOKEN = {
+                        access_token: tokenData.access_token,
+                        refresh_token: tokenData.refresh_token,
+                        user: tokenData.user
+                    };
+                    GM_setValue('auth_token', AUTH_TOKEN);
+                    console.log('[Coupang Tracker] ✅ YGIF localStorage에서 토큰 동기화 완료!');
+                    console.log('[Coupang Tracker] 토큰 만료까지:',
+                        Math.floor((tokenData.expires_at - Math.floor(Date.now() / 1000)) / 60), '분');
+                }
+            } else {
+                console.log('[Coupang Tracker] YGIF localStorage에 토큰 없음');
+            }
+        } catch (e) {
+            console.log('[Coupang Tracker] 토큰 동기화 에러:', e);
+        }
+    }
+
     // 메인
     function main() {
         // YGIF 페이지인 경우
@@ -432,9 +646,27 @@
         console.log('[Coupang Tracker] 추출 데이터:', productData);
 
         if (productData.current_price > 0) {
-            saveToSupabase(productData);
+            // 토큰 만료 확인 후 필요시 갱신
+            if (isTokenExpiredOrSoon()) {
+                console.log('[Coupang Tracker] 토큰 만료됨/곧 만료, 자동 갱신 시도...');
+                refreshAccessToken(function (success) {
+                    if (success) {
+                        console.log('[Coupang Tracker] 토큰 갱신 완료, 저장 진행');
+                        saveToSupabase(productData);
+                    } else {
+                        // 인증 실패 - 업데이트 중단
+                        stopUpdateAndGoBack('인증 만료: YGIF에서 다시 로그인해주세요');
+                    }
+                });
+            } else {
+                saveToSupabase(productData);
+            }
         } else {
-            showNotification('⚠️ 가격 없음', '가격 정보를 찾을 수 없습니다', false);
+            showNotification('⚠️ 가격 없음', '가격 정보를 찾을 수 없습니다.\n5초 후 뒤로 돌아갑니다...', false);
+            // 가격 없어도 뒤로 가기
+            setTimeout(() => {
+                window.history.back();
+            }, 5000);
         }
     }
 
