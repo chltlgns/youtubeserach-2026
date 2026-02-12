@@ -28,3 +28,6 @@ npm-debug.log*
 
 # Downloads
 downloads/
+
+# Edge parallel update profiles
+coupang-extension/edge-profiles/

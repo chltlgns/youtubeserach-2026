@@ -13,9 +13,12 @@ export interface TranslationItem {
     country_code: string;
     language_code: string;
     language_name: string;
+    error?: string;
 }
 
 const countryFlags: Record<string, string> = {
+    US: '🇺🇸',
+    JP: '🇯🇵',
     IR: '🇮🇷',
     PK: '🇵🇰',
     IN: '🇮🇳',
@@ -28,7 +31,7 @@ export function TranslationDisplay({ translations, isLoading }: TranslationDispl
     if (isLoading) {
         return (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[1, 2, 3, 4, 5, 6].map((i) => (
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                     <div
                         key={i}
                         className="p-4 rounded-xl bg-white/5 border border-white/10 animate-pulse"
@@ -80,6 +83,11 @@ export function TranslationDisplay({ translations, isLoading }: TranslationDispl
                             </span>
                         </div>
                         <p className="text-lg font-semibold mb-2">{translation.translated_query}</p>
+                        {translation.error && (
+                            <p className="text-xs text-red-400 mb-2">
+                                {translation.error}
+                            </p>
+                        )}
                         {translation.search_synonyms.length > 0 && (
                             <div className="flex flex-wrap gap-1">
                                 {translation.search_synonyms.slice(0, 3).map((syn, i) => (

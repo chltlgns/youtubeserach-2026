@@ -5,7 +5,7 @@ import axios from 'axios';
 import { SearchForm, SearchFormData } from '@/components/SearchForm';
 import { TranslationDisplay, TranslationItem } from '@/components/TranslationDisplay';
 import { VideoTable } from '@/components/VideoTable';
-import { VideoResult } from '@/app/api/search/route';
+import { VideoResult } from '@/lib/types';
 
 export default function HomePage() {
   const [translations, setTranslations] = useState<TranslationItem[]>([]);

@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 import { checkRateLimit } from '@/lib/rateLimit';
 
-export interface DownloadRequest {
+export interface DownloadPremiereRequest {
     url: string;
-    format?: string;
 }
 
-export interface DownloadResponse {
+export interface DownloadPremiereResponse {
     success: boolean;
     filename?: string;
     format?: string;
@@ -18,7 +17,7 @@ export interface DownloadResponse {
 
 export async function POST(request: NextRequest) {
     // Rate limiting
-    const rateLimitResponse = checkRateLimit(request, { maxPerMinute: 5, maxPerHour: 30 });
+    const rateLimitResponse = checkRateLimit(request, { maxPerMinute: 3, maxPerHour: 20 });
     if (rateLimitResponse) return rateLimitResponse;
 
     const YTDLP_BACKEND_URL = process.env.YTDLP_BACKEND_URL;
@@ -30,7 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-        const { url, format = 'best' } = await request.json();
+        const { url } = await request.json();
 
         if (!url || typeof url !== 'string') {
             return NextResponse.json(
@@ -49,12 +48,11 @@ export async function POST(request: NextRequest) {
         }
 
         try {
-            // Call Python FastAPI backend for yt-dlp download
-            const response = await axios.post(`${YTDLP_BACKEND_URL}/download`, {
+            // Call Python FastAPI backend for premiere-ready download
+            const response = await axios.post(`${YTDLP_BACKEND_URL}/download-premiere`, {
                 url,
-                format,
             }, {
-                timeout: 300000, // 5 minutes timeout
+                timeout: 600000, // 10 minutes timeout (encoding takes longer)
             });
 
             return NextResponse.json(response.data);
@@ -67,43 +65,16 @@ export async function POST(request: NextRequest) {
                     );
                 }
                 return NextResponse.json(
-                    { success: false, error: error.response?.data?.error || 'Download failed' },
+                    { success: false, error: error.response?.data?.error || error.response?.data?.detail || 'Download failed' },
                     { status: error.response?.status || 500 }
                 );
             }
             throw error;
         }
     } catch (error) {
-        console.error('Download API error:', error);
+        console.error('Download Premiere API error:', error);
         return NextResponse.json(
             { success: false, error: 'Failed to process download request' },
-            { status: 500 }
-        );
-    }
-}
-
-// Get download status or list
-export async function GET(request: NextRequest) {
-    const YTDLP_BACKEND_URL = process.env.YTDLP_BACKEND_URL;
-    if (!YTDLP_BACKEND_URL) {
-        return NextResponse.json(
-            { success: false, error: 'yt-dlp 백엔드 URL이 설정되지 않았습니다.' },
-            { status: 503 }
-        );
-    }
-
-    try {
-        const response = await axios.get(`${YTDLP_BACKEND_URL}/downloads`);
-        return NextResponse.json(response.data);
-    } catch (error) {
-        if (axios.isAxiosError(error) && error.code === 'ECONNREFUSED') {
-            return NextResponse.json(
-                { success: false, error: 'yt-dlp 백엔드 서버가 실행 중이 아닙니다.' },
-                { status: 503 }
-            );
-        }
-        return NextResponse.json(
-            { success: false, error: 'Failed to get downloads' },
             { status: 500 }
         );
     }

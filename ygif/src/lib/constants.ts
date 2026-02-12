@@ -1,5 +1,7 @@
 // Country and language configuration
 export const SUPPORTED_COUNTRIES = [
+    { code: 'US', name: 'United States', language: 'en', languageName: 'English' },
+    { code: 'JP', name: 'Japan', language: 'ja', languageName: 'Japanese' },
     { code: 'IR', name: 'Iran', language: 'fa', languageName: 'Persian (Farsi)' },
     { code: 'PK', name: 'Pakistan', language: 'ur', languageName: 'Urdu' },
     { code: 'IN', name: 'India', language: 'hi', languageName: 'Hindi' },

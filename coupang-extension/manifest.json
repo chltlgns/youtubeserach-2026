@@ -1,16 +1,16 @@
 {
     "manifest_version": 3,
     "name": "Coupang Price Tracker",
-    "version": "1.0.0",
-    "description": "쿠팡 제품 가격을 자동으로 수집하여 YGIF에 전송합니다",
+    "version": "2.3.0",
+    "description": "쿠팡 제품 가격을 자동으로 수집하여 Supabase에 저장합니다",
     "permissions": [
-        "activeTab",
-        "storage",
-        "tabs"
+        "storage"
     ],
     "host_permissions": [
-        "https://www.coupang.com/*",
-        "http://localhost:3000/*"
+        "*://*.coupang.com/*",
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*",
+        "https://rmbowbqxdryndsekobmh.supabase.co/*"
     ],
     "background": {
         "service_worker": "background.js"
@@ -18,25 +18,22 @@
     "content_scripts": [
         {
             "matches": [
-                "https://www.coupang.com/vp/products/*"
+                "*://*.coupang.com/*"
             ],
             "js": [
                 "content.js"
             ],
-            "run_at": "document_idle"
+            "run_at": "document_end"
         },
         {
             "matches": [
-                "http://localhost:3000/coupang*"
+                "http://localhost:3000/*",
+                "http://127.0.0.1:3000/*"
             ],
             "js": [
                 "ygif-content.js"
             ],
-            "run_at": "document_idle"
+            "run_at": "document_end"
         }
-    ],
-    "action": {
-        "default_popup": "popup.html",
-        "default_title": "Coupang Price Tracker"
-    }
+    ]
 }

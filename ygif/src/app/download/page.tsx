@@ -19,9 +19,12 @@ export default function DownloadPage() {
     const [isDownloading, setIsDownloading] = useState(false);
     const [result, setResult] = useState<DownloadResult | null>(null);
 
+    const backendUrl = process.env.NEXT_PUBLIC_YTDLP_BACKEND_URL;
+    const isBackendConfigured = !!backendUrl;
+
     const handleDownload = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!url.trim()) return;
+        if (!url.trim() || !isBackendConfigured) return;
 
         setIsDownloading(true);
         setResult(null);
@@ -35,7 +38,6 @@ export default function DownloadPage() {
 
             // Auto-trigger browser download if successful
             if (response.data.success && response.data.download_url) {
-                const backendUrl = process.env.NEXT_PUBLIC_YTDLP_BACKEND_URL || 'http://localhost:8000';
                 const downloadLink = document.createElement('a');
                 downloadLink.href = `${backendUrl}${response.data.download_url}`;
                 downloadLink.download = response.data.filename || 'download';
@@ -78,6 +80,14 @@ export default function DownloadPage() {
                 </p>
             </div>
 
+            {/* Backend Not Configured Warning */}
+            {!isBackendConfigured && (
+                <div className="mb-8 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl text-yellow-400">
+                    <p className="font-semibold mb-1">다운로드 백엔드 미설정</p>
+                    <p className="text-sm">NEXT_PUBLIC_YTDLP_BACKEND_URL 환경변수가 설정되지 않았습니다. 다운로드 기능을 사용하려면 백엔드 서버를 실행하고 환경변수를 설정하세요.</p>
+                </div>
+            )}
+
             {/* Download Form */}
             <form onSubmit={handleDownload} className="space-y-6">
                 <div className="space-y-2">
@@ -118,7 +128,7 @@ export default function DownloadPage() {
 
                 <button
                     type="submit"
-                    disabled={!url.trim() || !isValidUrl(url) || isDownloading}
+                    disabled={!url.trim() || !isValidUrl(url) || isDownloading || !isBackendConfigured}
                     className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed rounded-xl font-semibold text-lg shadow-lg shadow-green-500/20 hover:shadow-green-500/40 transition-all flex items-center justify-center gap-2"
                 >
                     {isDownloading ? (

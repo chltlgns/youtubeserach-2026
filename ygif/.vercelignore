@@ -1,0 +1,16 @@
+# Large/unnecessary files for deployment
+node_modules
+.next
+backend
+*.png
+*.html
+test-*.ts
+*.bat
+supabase
+prd.md
+README.md
+.env*
+.omc
+.playwright-cli
+.venv
+tsconfig.tsbuildinfo

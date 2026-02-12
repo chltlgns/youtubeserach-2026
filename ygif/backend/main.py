@@ -15,6 +15,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import yt_dlp
 import urllib.parse
+import subprocess
+import shutil
 
 app = FastAPI(
     title="YGIF yt-dlp Backend",
@@ -213,6 +215,188 @@ def download_with_ytdlp(url: str, opts: dict) -> dict:
         return {"success": False, "error": str(e)}
 
 
+@app.post("/download-premiere", response_model=DownloadResponse)
+async def download_for_premiere(request: DownloadRequest):
+    """Download a YouTube video and encode for Premiere Pro using ffmpeg"""
+
+    # Validate URL
+    if not request.url:
+        raise HTTPException(status_code=400, detail="URL is required")
+
+    youtube_domains = ["youtube.com", "youtu.be", "www.youtube.com"]
+    if not any(domain in request.url for domain in youtube_domains):
+        raise HTTPException(status_code=400, detail="Invalid YouTube URL")
+
+    # Check if ffmpeg is available
+    if not shutil.which("ffmpeg"):
+        raise HTTPException(status_code=500, detail="ffmpeg is not installed or not in PATH")
+
+    download_info = DownloadInfo(
+        id=datetime.now().strftime("%Y%m%d%H%M%S"),
+        title="",
+        url=request.url,
+        status="downloading",
+        created_at=datetime.now().isoformat(),
+    )
+
+    try:
+        # Run download and encode in a thread pool to not block
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, lambda: download_and_encode_for_premiere(request.url)
+        )
+
+        if result["success"]:
+            download_info.status = "completed"
+            download_info.title = result.get("title", "")
+            download_info.filename = result.get("filename", "")
+            download_history.append(download_info)
+
+            filename = result.get("filename")
+            encoded_filename = urllib.parse.quote(filename) if filename else None
+            return DownloadResponse(
+                success=True,
+                filename=filename,
+                format="H.264 High Profile (Premiere Ready)",
+                size=result.get("size"),
+                download_path=DOWNLOAD_PATH,
+                download_url=f"/download-file/{encoded_filename}" if encoded_filename else None,
+            )
+        else:
+            download_info.status = "failed"
+            download_info.error = result.get("error")
+            download_history.append(download_info)
+
+            return DownloadResponse(
+                success=False,
+                error=result.get("error", "Download failed"),
+            )
+
+    except Exception as e:
+        download_info.status = "failed"
+        download_info.error = str(e)
+        download_history.append(download_info)
+
+        return DownloadResponse(
+            success=False,
+            error=str(e),
+        )
+
+
+def download_and_encode_for_premiere(url: str) -> dict:
+    """Download video and encode for Premiere Pro with optimal settings"""
+    temp_filename = None
+    try:
+        # yt-dlp options - download best quality
+        ydl_opts = {
+            "outtmpl": os.path.join(DOWNLOAD_PATH, "temp_%(title)s.%(ext)s"),
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": False,
+            "format": "bestvideo+bestaudio/best",
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # Get video info and download
+            info = ydl.extract_info(url, download=True)
+
+            if info is None:
+                return {"success": False, "error": "Could not extract video info"}
+
+            # Get the actual filename
+            temp_filename = ydl.prepare_filename(info)
+
+            # Handle merged file extension
+            if not os.path.exists(temp_filename):
+                for ext in [".mp4", ".mkv", ".webm"]:
+                    possible_file = temp_filename.rsplit(".", 1)[0] + ext
+                    if os.path.exists(possible_file):
+                        temp_filename = possible_file
+                        break
+
+            if not os.path.exists(temp_filename):
+                return {"success": False, "error": "Downloaded file not found"}
+
+            # Get original framerate using ffprobe
+            fps_result = subprocess.run(
+                ["ffprobe", "-v", "0", "-of", "default=noprint_wrappers=1:nokey=1",
+                 "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", temp_filename],
+                capture_output=True, text=True
+            )
+            original_fps = "30"  # default
+            if fps_result.returncode == 0 and fps_result.stdout.strip():
+                fps_str = fps_result.stdout.strip()
+                if "/" in fps_str:
+                    num, den = fps_str.split("/")
+                    original_fps = str(round(int(num) / int(den)))
+                else:
+                    original_fps = fps_str
+
+            # Calculate GOP size (2 seconds * fps)
+            gop_size = int(float(original_fps) * 2)
+
+            # Output filename with _premiere suffix
+            title = info.get("title", "video")
+            # Sanitize filename
+            safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            output_filename = f"{safe_title}_premiere.mp4"
+            output_path = os.path.join(DOWNLOAD_PATH, output_filename)
+
+            # FFmpeg encoding for Premiere Pro
+            # Specs: H.264 High Profile, Level 4.2, yuv420p, CFR, GOP 2s, AAC 48kHz Stereo 192kbps
+            ffmpeg_cmd = [
+                "ffmpeg", "-y", "-i", temp_filename,
+                # Video settings
+                "-c:v", "libx264",
+                "-profile:v", "high",
+                "-level:v", "4.2",
+                "-pix_fmt", "yuv420p",
+                "-r", original_fps,  # CFR with original framerate
+                "-g", str(gop_size),  # GOP size (2 seconds)
+                "-keyint_min", str(gop_size),
+                "-sc_threshold", "0",  # Disable scene change detection for consistent GOPs
+                "-crf", "18",  # High quality
+                "-preset", "slow",  # Better compression
+                # Audio settings
+                "-c:a", "aac",
+                "-ar", "48000",  # 48kHz sample rate
+                "-ac", "2",  # Stereo
+                "-b:a", "192k",  # 192kbps audio bitrate
+                # Container
+                "-movflags", "+faststart",  # Optimize for streaming/editing
+                output_path
+            ]
+
+            result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                return {"success": False, "error": f"FFmpeg encoding failed: {result.stderr[:500]}"}
+
+            # Clean up temp file
+            if os.path.exists(temp_filename):
+                os.remove(temp_filename)
+
+            # Get output file size
+            file_size = format_bytes(os.path.getsize(output_path))
+
+            return {
+                "success": True,
+                "title": title,
+                "filename": output_filename,
+                "format": "H.264 High Profile (Premiere Ready)",
+                "size": file_size,
+            }
+
+    except yt_dlp.utils.DownloadError as e:
+        if temp_filename and os.path.exists(temp_filename):
+            os.remove(temp_filename)
+        return {"success": False, "error": f"Download error: {str(e)}"}
+    except Exception as e:
+        if temp_filename and os.path.exists(temp_filename):
+            os.remove(temp_filename)
+        return {"success": False, "error": str(e)}
+
+
 @app.get("/downloads")
 async def get_downloads():
     """Get download history"""
@@ -229,13 +413,18 @@ async def serve_download_file(filename: str):
     # URL decode the filename
     decoded_filename = urllib.parse.unquote(filename)
     file_path = os.path.join(DOWNLOAD_PATH, decoded_filename)
-    
-    if not os.path.exists(file_path):
+
+    # Path traversal defense: ensure resolved path is within DOWNLOAD_PATH
+    real_path = os.path.realpath(file_path)
+    if not real_path.startswith(os.path.realpath(DOWNLOAD_PATH)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not os.path.exists(real_path):
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     return FileResponse(
-        path=file_path,
-        filename=decoded_filename,
+        path=real_path,
+        filename=os.path.basename(real_path),
         media_type="application/octet-stream",
     )
 

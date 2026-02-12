@@ -1,30 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
+import { checkRateLimit } from '@/lib/rateLimit';
+import { VideoResult } from '@/lib/types';
+
+export type { VideoResult };
 
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 const YOUTUBE_SEARCH_URL = 'https://www.googleapis.com/youtube/v3/search';
 const YOUTUBE_VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos';
 const YOUTUBE_CHANNELS_URL = 'https://www.googleapis.com/youtube/v3/channels';
-
-export interface VideoResult {
-    video_id: string;
-    video_url: string;
-    video_title: string;
-    thumbnail_url: string;
-    upload_date: string;
-    view_count: number;
-    like_count: number;
-    duration: string;
-    duration_seconds: number;
-    channel_id: string;
-    channel_title: string;
-    channel_url: string;
-    subscriber_count: number;
-    country_code: string;
-    language_code: string;
-    original_query: string;
-    translated_query: string;
-}
 
 // Parse ISO 8601 duration to seconds and formatted string
 function parseDuration(isoDuration: string): { seconds: number; formatted: string } {
@@ -47,12 +31,11 @@ function parseDuration(isoDuration: string): { seconds: number; formatted: strin
     return { seconds: totalSeconds, formatted };
 }
 
-// Format large numbers (e.g., 1234567 -> 1,234,567)
-function formatNumber(num: number): string {
-    return num.toLocaleString();
-}
-
 export async function POST(request: NextRequest) {
+    // Rate limiting
+    const rateLimitResponse = checkRateLimit(request, { maxPerMinute: 10, maxPerHour: 100 });
+    if (rateLimitResponse) return rateLimitResponse;
+
     try {
         const body = await request.json();
         const {
@@ -104,12 +87,8 @@ export async function POST(request: NextRequest) {
             }
 
             try {
-                console.log(`[Search] Searching for country ${country_code}:`, translated_query);
-
                 const searchResponse = await axios.get(YOUTUBE_SEARCH_URL, { params: searchParams });
                 const searchItems = searchResponse.data.items || [];
-
-                console.log(`[Search] Found ${searchItems.length} videos for ${country_code}`);
 
                 if (searchItems.length === 0) continue;
 
@@ -181,14 +160,14 @@ export async function POST(request: NextRequest) {
                         translated_query,
                     });
                 }
-            } catch (error: any) {
-                const errorMsg = error?.response?.data?.error?.message || error?.message || 'Unknown error';
+            } catch (error: unknown) {
+                const errorMsg = axios.isAxiosError(error)
+                    ? error.response?.data?.error?.message || error.message
+                    : error instanceof Error ? error.message : 'Unknown error';
                 console.error(`[Search] Error for ${country_code}:`, errorMsg);
                 errors.push({ country: country_code, error: errorMsg });
             }
         }
-
-        console.log(`[Search] Total videos found: ${allVideos.length}, Errors: ${errors.length}`);
 
         // Sort by view count (descending) and remove duplicates
         const uniqueVideos = Array.from(

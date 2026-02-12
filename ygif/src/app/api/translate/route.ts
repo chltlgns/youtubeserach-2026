@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { NextRequest, NextResponse } from 'next/server';
 import { SUPPORTED_COUNTRIES } from '@/lib/constants';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
@@ -12,9 +13,14 @@ export interface TranslationResult {
     country_code: string;
     language_code: string;
     language_name: string;
+    error?: string;
 }
 
 export async function POST(request: NextRequest) {
+    // Rate limiting
+    const rateLimitResponse = checkRateLimit(request, { maxPerMinute: 5, maxPerHour: 50 });
+    if (rateLimitResponse) return rateLimitResponse;
+
     try {
         const { keyword, countries } = await request.json();
 
@@ -81,7 +87,20 @@ Respond in this exact JSON format only, no other text:
                 }
             } catch (error) {
                 console.error(`Translation error for ${country.name}:`, error);
-                // Add fallback with original keyword
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                let userMessage = 'Translation failed';
+                if (errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('API key')) {
+                    userMessage = 'API key invalid or expired';
+                } else if (errorMessage.includes('RATE_LIMIT') || errorMessage.includes('429')) {
+                    userMessage = 'Rate limit exceeded, try again later';
+                } else if (errorMessage.includes('not found') || errorMessage.includes('404')) {
+                    userMessage = 'Model not found';
+                } else if (errorMessage.includes('SAFETY')) {
+                    userMessage = 'Content blocked by safety filter';
+                } else if (errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('ECONNREFUSED')) {
+                    userMessage = 'Network error, check connection';
+                }
+                // Add fallback with original keyword and error info
                 translations.push({
                     original_query: keyword,
                     translated_query: keyword,
@@ -90,6 +109,7 @@ Respond in this exact JSON format only, no other text:
                     country_code: country.code,
                     language_code: country.language,
                     language_name: country.languageName,
+                    error: userMessage,
                 });
             }
         }

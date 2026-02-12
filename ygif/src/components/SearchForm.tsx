@@ -93,7 +93,7 @@ export function SearchForm({ onSearch, isLoading }: SearchFormProps) {
                         </button>
                     </div>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
                     {SUPPORTED_COUNTRIES.map((country) => {
                         const isSelected = countries.includes(country.code);
                         return (
@@ -208,6 +208,8 @@ export function SearchForm({ onSearch, isLoading }: SearchFormProps) {
 
 function getCountryFlag(code: string): string {
     const flags: Record<string, string> = {
+        US: '🇺🇸',
+        JP: '🇯🇵',
         IR: '🇮🇷',
         PK: '🇵🇰',
         IN: '🇮🇳',

@@ -12,8 +12,8 @@ import {
     SortingState,
     RowSelectionState,
 } from '@tanstack/react-table';
-import { VideoResult } from '@/app/api/search/route';
-import { Copy, Check, ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { VideoResult } from '@/lib/types';
+import { Copy, Check, ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown, Download, Loader2 } from 'lucide-react';
 import { ROWS_PER_PAGE_OPTIONS } from '@/lib/constants';
 
 const columnHelper = createColumnHelper<VideoResult>();
@@ -27,6 +27,8 @@ export function VideoTable({ videos, isLoading }: VideoTableProps) {
     const [sorting, setSorting] = useState<SortingState>([]);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const [copiedId, setCopiedId] = useState<string | null>(null);
+    const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
+    const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
 
     const copyToClipboard = useCallback(async (text: string, id: string) => {
         try {
@@ -38,6 +40,9 @@ export function VideoTable({ videos, isLoading }: VideoTableProps) {
         }
     }, []);
 
+    // Note: copySelectedUrls references `table` which is defined later.
+    // This is safe because the callback is only called after render when table exists.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const copySelectedUrls = useCallback(async () => {
         const selectedRows = table.getSelectedRowModel().rows;
         const urls = selectedRows.map((row) => row.original.video_url).join('\n');
@@ -46,7 +51,53 @@ export function VideoTable({ videos, isLoading }: VideoTableProps) {
             setCopiedId('bulk');
             setTimeout(() => setCopiedId(null), 2000);
         }
-    }, []);
+    }, [rowSelection]);
+
+    const backendUrl = process.env.NEXT_PUBLIC_YTDLP_BACKEND_URL;
+    const isDownloadAvailable = !!backendUrl;
+
+    const downloadForPremiere = useCallback(async (videoUrl: string, videoId: string) => {
+        if (!isDownloadAvailable) {
+            alert('다운로드 백엔드가 설정되지 않았습니다. NEXT_PUBLIC_YTDLP_BACKEND_URL 환경변수를 확인하세요.');
+            return;
+        }
+        if (downloadingIds.has(videoId)) return;
+
+        setDownloadingIds(prev => new Set(prev).add(videoId));
+
+        try {
+            const response = await fetch('/api/download-premiere', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: videoUrl }),
+            });
+
+            const data = await response.json();
+
+            if (data.success && data.download_url) {
+                window.open(`${backendUrl}${data.download_url}`, '_blank');
+                setDownloadedIds(prev => new Set(prev).add(videoId));
+                setTimeout(() => {
+                    setDownloadedIds(prev => {
+                        const newSet = new Set(prev);
+                        newSet.delete(videoId);
+                        return newSet;
+                    });
+                }, 3000);
+            } else {
+                alert(`다운로드 실패: ${data.error || '알 수 없는 오류'}`);
+            }
+        } catch (error) {
+            console.error('Download error:', error);
+            alert('다운로드에 실패했습니다. 백엔드 서버가 실행 중인지 확인하세요.');
+        } finally {
+            setDownloadingIds(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(videoId);
+                return newSet;
+            });
+        }
+    }, [downloadingIds, isDownloadAvailable, backendUrl]);
 
     const formatNumber = (num: number) => {
         if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -163,8 +214,24 @@ export function VideoTable({ videos, isLoading }: VideoTableProps) {
             cell: ({ row }) => {
                 const video = row.original;
                 const isCopied = copiedId === video.video_id;
+                const isDownloading = downloadingIds.has(video.video_id);
+                const isDownloaded = downloadedIds.has(video.video_id);
                 return (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={() => downloadForPremiere(video.video_url, video.video_id)}
+                            disabled={isDownloading || !isDownloadAvailable}
+                            className="p-2 rounded hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={isDownloadAvailable ? "Download for Premiere (H.264)" : "다운로드 백엔드 미설정"}
+                        >
+                            {isDownloading ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                            ) : isDownloaded ? (
+                                <Check className="w-4 h-4 text-green-500" />
+                            ) : (
+                                <Download className="w-4 h-4 text-purple-400" />
+                            )}
+                        </button>
                         <button
                             onClick={() => copyToClipboard(video.video_url, video.video_id)}
                             className="p-2 rounded hover:bg-white/10 transition-colors"
@@ -188,7 +255,7 @@ export function VideoTable({ videos, isLoading }: VideoTableProps) {
                     </div>
                 );
             },
-            size: 100,
+            size: 120,
         }),
     ];
 

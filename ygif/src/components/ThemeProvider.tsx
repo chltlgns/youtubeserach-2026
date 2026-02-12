@@ -54,7 +54,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
 
     if (!mounted) {
-        return null;
+        // Render children with default theme to avoid SSR flash (blank screen)
+        return (
+            <ThemeContext.Provider value={{ theme: 'dark', setTheme, cycleTheme }}>
+                <div suppressHydrationWarning>
+                    {children}
+                </div>
+            </ThemeContext.Provider>
+        );
     }
 
     return (
