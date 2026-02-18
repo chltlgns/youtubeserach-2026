@@ -31,6 +31,17 @@ function parseDuration(isoDuration: string): { seconds: number; formatted: strin
     return { seconds: totalSeconds, formatted };
 }
 
+function calculateQualityScore(viewCount: number, likeCount: number, subscriberCount: number, durationSeconds: number): number {
+    // Engagement: like/view ratio, 5% = max score
+    const engagement = viewCount > 0 ? Math.min((likeCount / viewCount) / 0.05, 1) : 0;
+    // Subscribers: log scale, 10M = max score
+    const subscribers = subscriberCount > 0 ? Math.min(Math.log10(subscriberCount) / 7, 1) : 0;
+    // Duration: 10+ minutes = max score
+    const duration = Math.min(durationSeconds / 600, 1);
+
+    return Math.round((engagement * 0.5 + subscribers * 0.3 + duration * 0.2) * 100);
+}
+
 export async function POST(request: NextRequest) {
     // Rate limiting
     const rateLimitResponse = checkRateLimit(request, { maxPerMinute: 10, maxPerHour: 100 });
@@ -44,6 +55,7 @@ export async function POST(request: NextRequest) {
             order = 'relevance', // relevance, date, viewCount, rating
             publishedAfter,
             publishedBefore,
+            excludeShorts = true,
         } = body;
 
         if (!YOUTUBE_API_KEY) {
@@ -140,24 +152,29 @@ export async function POST(request: NextRequest) {
                     const channelInfo = channelCache.get(channelId);
                     const durationInfo = parseDuration(details?.duration || 'PT0S');
 
+                    const viewCount = details?.views || 0;
+                    const likeCount = details?.likes || 0;
+                    const subscriberCount = channelInfo?.subscribers || 0;
+
                     allVideos.push({
                         video_id: videoId,
                         video_url: `https://www.youtube.com/watch?v=${videoId}`,
                         video_title: item.snippet.title,
                         thumbnail_url: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.default?.url,
                         upload_date: item.snippet.publishedAt,
-                        view_count: details?.views || 0,
-                        like_count: details?.likes || 0,
+                        view_count: viewCount,
+                        like_count: likeCount,
                         duration: durationInfo.formatted,
                         duration_seconds: durationInfo.seconds,
                         channel_id: channelId,
                         channel_title: channelInfo?.title || item.snippet.channelTitle,
                         channel_url: `https://www.youtube.com/channel/${channelId}`,
-                        subscriber_count: channelInfo?.subscribers || 0,
+                        subscriber_count: subscriberCount,
                         country_code,
                         language_code,
                         original_query,
                         translated_query,
+                        quality_score: calculateQualityScore(viewCount, likeCount, subscriberCount, durationInfo.seconds),
                     });
                 }
             } catch (error: unknown) {
@@ -169,10 +186,17 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Sort by view count (descending) and remove duplicates
-        const uniqueVideos = Array.from(
+        // Deduplicate, filter Shorts, and sort by quality score
+        const dedupedVideos = Array.from(
             new Map(allVideos.map((v) => [v.video_id, v])).values()
-        ).sort((a, b) => b.view_count - a.view_count);
+        );
+
+        // Filter out Shorts (duration <= 60 seconds)
+        const filteredVideos = excludeShorts
+            ? dedupedVideos.filter((v) => v.duration_seconds > 60)
+            : dedupedVideos;
+
+        const uniqueVideos = filteredVideos.sort((a, b) => b.quality_score - a.quality_score);
 
         return NextResponse.json({
             videos: uniqueVideos,

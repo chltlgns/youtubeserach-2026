@@ -18,4 +18,5 @@ export interface VideoResult {
     language_code: string;
     original_query: string;
     translated_query: string;
+    quality_score: number;
 }

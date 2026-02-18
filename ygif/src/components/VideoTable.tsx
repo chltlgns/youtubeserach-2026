@@ -208,6 +208,26 @@ export function VideoTable({ videos, isLoading }: VideoTableProps) {
             ),
             size: 80,
         }),
+        columnHelper.accessor('quality_score', {
+            header: 'QUALITY',
+            cell: (info) => {
+                const score = info.getValue();
+                const color = score >= 70 ? 'bg-green-500' : score >= 40 ? 'bg-yellow-500' : 'bg-red-500';
+                const textColor = score >= 70 ? 'text-green-400' : score >= 40 ? 'text-yellow-400' : 'text-red-400';
+                return (
+                    <div className="flex items-center gap-2">
+                        <div className="w-16 h-2 rounded-full bg-white/10 overflow-hidden">
+                            <div
+                                className={`h-full rounded-full ${color}`}
+                                style={{ width: `${score}%` }}
+                            />
+                        </div>
+                        <span className={`text-xs font-bold ${textColor}`}>{score}</span>
+                    </div>
+                );
+            },
+            size: 120,
+        }),
         columnHelper.display({
             id: 'actions',
             header: 'ACTIONS',

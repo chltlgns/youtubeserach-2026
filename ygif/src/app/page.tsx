@@ -51,6 +51,7 @@ export default function HomePage() {
         order: data.order,
         publishedAfter: data.publishedAfter,
         publishedBefore: data.publishedBefore,
+        excludeShorts: data.excludeShorts,
       });
 
       console.log('Search response:', searchResponse.data);

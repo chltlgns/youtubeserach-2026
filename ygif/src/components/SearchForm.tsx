@@ -16,6 +16,7 @@ export interface SearchFormData {
     order: string;
     publishedAfter?: string;
     publishedBefore?: string;
+    excludeShorts: boolean;
 }
 
 export function SearchForm({ onSearch, isLoading }: SearchFormProps) {
@@ -26,6 +27,7 @@ export function SearchForm({ onSearch, isLoading }: SearchFormProps) {
     const [publishedAfter, setPublishedAfter] = useState('');
     const [publishedBefore, setPublishedBefore] = useState('');
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [excludeShorts, setExcludeShorts] = useState(true);
 
     const toggleCountry = (code: string) => {
         setCountries((prev) =>
@@ -51,6 +53,7 @@ export function SearchForm({ onSearch, isLoading }: SearchFormProps) {
             order,
             publishedAfter: publishedAfter || undefined,
             publishedBefore: publishedBefore || undefined,
+            excludeShorts,
         });
     };
 
@@ -129,7 +132,7 @@ export function SearchForm({ onSearch, isLoading }: SearchFormProps) {
 
             {/* Advanced Options */}
             {showAdvanced && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-white/5 rounded-xl border border-white/10">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 p-4 bg-white/5 rounded-xl border border-white/10">
                     <div className="space-y-2">
                         <label className="text-xs font-medium text-gray-400">Results per country</label>
                         <select
@@ -180,6 +183,18 @@ export function SearchForm({ onSearch, isLoading }: SearchFormProps) {
                             onChange={(e) => setPublishedBefore(e.target.value)}
                             className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
                         />
+                    </div>
+                    <div className="space-y-2 flex flex-col justify-center">
+                        <label className="text-xs font-medium text-gray-400">Filter</label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={excludeShorts}
+                                onChange={(e) => setExcludeShorts(e.target.checked)}
+                                className="w-4 h-4 rounded accent-blue-500"
+                            />
+                            <span className="text-sm">Exclude Shorts (&le;60s)</span>
+                        </label>
                     </div>
                 </div>
             )}
