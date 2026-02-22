@@ -25,10 +25,14 @@ interface ScrapeOptions {
     maxPages?: number;
 }
 
-// Source Edge profile and scraper working copy (configurable via env vars)
-const EDGE_USER_DATA = process.env.EDGE_USER_DATA_DIR || 'C:\\Users\\campu\\AppData\\Local\\Microsoft\\Edge\\User Data';
-const SCRAPER_USER_DATA = process.env.SCRAPER_USER_DATA_DIR || 'C:\\Users\\campu\\AppData\\Local\\CoupangScraperEdge';
+// Source Edge profile and scraper working copy (must be set via env vars)
+const EDGE_USER_DATA = process.env.EDGE_USER_DATA_DIR;
+const SCRAPER_USER_DATA = process.env.SCRAPER_USER_DATA_DIR;
 const EDGE_PROFILE = process.env.EDGE_PROFILE || 'Default';
+
+if (!EDGE_USER_DATA || !SCRAPER_USER_DATA) {
+    console.warn('[CoupangPlaywright] EDGE_USER_DATA_DIR and SCRAPER_USER_DATA_DIR env vars are required for scraping');
+}
 
 // Copy Edge cookies/session to scraper directory (works even while Edge is running)
 async function syncEdgeProfile(): Promise<void> {
@@ -36,15 +40,15 @@ async function syncEdgeProfile(): Promise<void> {
     const fs = await import('fs');
     const path = await import('path');
 
-    const srcProfile = path.join(EDGE_USER_DATA, EDGE_PROFILE);
-    const dstProfile = path.join(SCRAPER_USER_DATA, EDGE_PROFILE);
+    const srcProfile = path.join(EDGE_USER_DATA ?? '', EDGE_PROFILE);
+    const dstProfile = path.join(SCRAPER_USER_DATA ?? '', EDGE_PROFILE);
 
     // Create scraper directory
     fs.mkdirSync(dstProfile, { recursive: true });
 
     // Copy Local State (encryption keys for cookies)
-    const localStateSrc = path.join(EDGE_USER_DATA, 'Local State');
-    const localStateDst = path.join(SCRAPER_USER_DATA, 'Local State');
+    const localStateSrc = path.join(EDGE_USER_DATA ?? '', 'Local State');
+    const localStateDst = path.join(SCRAPER_USER_DATA ?? '', 'Local State');
     if (fs.existsSync(localStateSrc)) {
         try { fs.copyFileSync(localStateSrc, localStateDst); } catch { /* locked */ }
     }
@@ -53,8 +57,6 @@ async function syncEdgeProfile(): Promise<void> {
     const filesToCopy = [
         'Cookies',
         'Cookies-journal',
-        'Login Data',
-        'Login Data-journal',
         'Web Data',
         'Web Data-journal',
         'Preferences',
@@ -231,8 +233,8 @@ async function launchBrowser(): Promise<PlaywrightBrowserContext> {
     // Sync cookies/session from real Edge profile
     await syncEdgeProfile();
 
-    // eslint-disable-next-line no-eval
-    const { chromium } = await eval("import('playwright')");
+    // @ts-expect-error playwright is optional, loaded at runtime
+    const { chromium } = await import(/* webpackIgnore: true */ 'playwright');
     const context = await chromium.launchPersistentContext(SCRAPER_USER_DATA, {
         channel: 'msedge',          // Use REAL Edge, not Chromium
         headless: false,

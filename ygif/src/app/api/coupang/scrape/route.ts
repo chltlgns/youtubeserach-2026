@@ -19,12 +19,12 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    // Dynamic import hidden from Turbopack bundler analysis
+    // Dynamic import excluded from bundler via serverExternalPackages in next.config.ts
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let puppeteer: any;
     try {
-        // eslint-disable-next-line no-eval
-        puppeteer = await eval("import('puppeteer')");
+        // @ts-expect-error puppeteer is optional, loaded at runtime
+        puppeteer = await import(/* webpackIgnore: true */ 'puppeteer');
     } catch {
         return NextResponse.json(
             { error: 'Puppeteer를 로드할 수 없습니다. 로컬 환경에서 npm install puppeteer를 실행해주세요.' },
@@ -133,7 +133,10 @@ export async function POST(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let browser: any = null;
     const YGIF_BASE_URL = process.env.YGIF_BASE_URL || 'http://localhost:3000';
-    const userDataDir = process.env.PUPPETEER_USER_DATA_DIR || 'C:\\Users\\campu\\AppData\\Local\\CoupangScraperChrome';
+    const userDataDir = process.env.PUPPETEER_USER_DATA_DIR;
+    if (!userDataDir) {
+        return NextResponse.json({ error: 'PUPPETEER_USER_DATA_DIR 환경변수가 설정되지 않았습니다.' }, { status: 503 });
+    }
 
     try {
         const { urls } = await request.json();

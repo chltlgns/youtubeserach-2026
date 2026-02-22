@@ -1,20 +1,36 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ShoppingCart, RefreshCw, Trash2, Download, Plus, Zap, Loader2, LogIn, LogOut, User as UserIcon, BarChart3, Star, ArrowUpDown, ChevronUp, ChevronDown, Users, Video, Award, Tag } from 'lucide-react';
+import { ShoppingCart, RefreshCw, Trash2, Download, Plus, Zap, Loader2, LogIn, LogOut, User as UserIcon, BarChart3, Star, ArrowUpDown, ChevronUp, ChevronDown, Users, Video, Award, Tag, TrendingUp } from 'lucide-react';
 import { supabase, CoupangProductDB } from '@/lib/supabase';
 import AuthModal from '@/components/auth/AuthModal';
 import PriceHistoryModal from '@/components/coupang/PriceHistoryModal';
+import TrendDetailModal from '@/components/coupang/TrendDetailModal';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { classifyBrand, BRAND_COLORS } from '@/lib/brandClassifier';
 import { calculateProductScore, ProductScoreResult } from '@/lib/productScoring';
 import { CoupangProduct, CoupangScrapedData } from '@/lib/coupangTypes';
+import { TrendResult, TrendFetchResponse, ProductLine } from '@/lib/trendTypes';
+import { getUniqueProductLines, getProductLineId } from '@/lib/productLineClassifier';
+import { NormalizationBatchResponse, NormalizationResult } from '@/lib/productNormalizerTypes';
 
 // Sort types
-type SortField = 'productName' | 'currentPrice' | 'discountRate' | 'priceChangeRate' | 'rating' | 'reviewCount' | 'monthlyPurchases' | 'lastUpdated' | 'brand' | 'score' | null;
+type SortField = 'productName' | 'currentPrice' | 'discountRate' | 'priceChangeRate' | 'rating' | 'reviewCount' | 'monthlyPurchases' | 'lastUpdated' | 'brand' | 'score' | 'trend' | null;
 type SortDirection = 'asc' | 'desc';
 
 const RESET_HOUR = 9; // 오전 9시 기준 리셋
+
+function safeNavigate(url: string): boolean {
+    try {
+        const parsed = new URL(url);
+        if (!['https:', 'http:'].includes(parsed.protocol)) return false;
+        if (!parsed.hostname.endsWith('coupang.com')) return false;
+        window.location.href = url;
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 export default function CoupangPage() {
     const [products, setProducts] = useState<CoupangProduct[]>([]);
@@ -27,10 +43,15 @@ export default function CoupangPage() {
     const [showAuthModal, setShowAuthModal] = useState(false);
     const [showPriceHistoryModal, setShowPriceHistoryModal] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState<CoupangProduct | null>(null);
+    const [showTrendModal, setShowTrendModal] = useState(false);
+    const [selectedTrendProduct, setSelectedTrendProduct] = useState<CoupangProduct | null>(null);
     const [sortField, setSortField] = useState<SortField>(null);
     const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
     const [productScores, setProductScores] = useState<Record<string, ProductScoreResult>>({});
     const [lowestPrices, setLowestPrices] = useState<Record<string, number>>({});
+    const [trendData, setTrendData] = useState<Record<string, TrendResult>>({});
+    const [isTrendLoading, setIsTrendLoading] = useState(false);
+    const [lastTrendUpdate, setLastTrendUpdate] = useState<string | null>(null);
 
     // 병렬 워커 파라미터 읽기
     const [workerIndex, setWorkerIndex] = useState(-1);
@@ -161,7 +182,7 @@ export default function CoupangPage() {
         console.log(`[워커${workerIndex}][YGIF] 자동 시작, ${urls.length}개 제품`);
 
         setTimeout(() => {
-            window.location.href = urls[0];
+            safeNavigate(urls[0]);
         }, 1000);
     }, [autostart, isParallelMode, products, workerIndex, totalWorkers, isUpdating]);
 
@@ -215,17 +236,25 @@ export default function CoupangPage() {
                     brandVideoDate = otherBrandVideos[0];
                 }
 
+                // Get trend data for this product's line
+                const lineId = getProductLineId(p.productName);
+                const trend = trendData[lineId] ?? null;
+                const trendInput = trend ? {
+                    currentValue: trend.currentValue,
+                    trendDirection: trend.trendDirection,
+                    trendSlope: trend.trendSlope,
+                } : null;
+
                 scores[p.id] = calculateProductScore(
                     {
                         monthlyPurchases: p.monthlyPurchases,
                         reviewCount: p.reviewCount,
                         currentPrice: p.currentPrice,
                         lowestPrice: lowest[p.id] || p.currentPrice,
-                        discountRate: p.discountRate,
-                        rating: p.rating,
                         videoCompletedAt: p.videoCompletedAt,
                         brand,
                         brandVideoCompletedAt: brandVideoDate,
+                        trendData: trendInput,
                     },
                     allPurchases,
                     allReviews
@@ -235,7 +264,7 @@ export default function CoupangPage() {
         };
 
         calculateScores();
-    }, [products]);
+    }, [products, trendData]);
 
     // 순차 업데이트 진행 확인 (뒤로 가기로 돌아왔을 때만)
     useEffect(() => {
@@ -291,11 +320,87 @@ export default function CoupangPage() {
 
             setTimeout(() => {
                 sessionStorage.removeItem(processingKey);
-                window.location.href = urls[nextIndex];
+                safeNavigate(urls[nextIndex]);
             }, 1500);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Fetch trend data for all products
+    const fetchTrendData = useCallback(async (forceRefresh = false) => {
+        if (products.length === 0) return;
+        setIsTrendLoading(true);
+
+        try {
+            const productNames = products.map(p => p.productName);
+
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (session?.access_token) {
+                headers['Authorization'] = `Bearer ${session.access_token}`;
+            }
+
+            // Try AI normalization first, fall back to regex
+            let productLines: ProductLine[] | undefined;
+            try {
+                const normalizeRes = await fetch('/api/normalize', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ productNames, forceRefresh }),
+                });
+
+                if (normalizeRes.ok) {
+                    const normData: NormalizationBatchResponse = await normalizeRes.json();
+                    if (normData.success && normData.results.length > 0) {
+                        // Deduplicate by lineId and convert to ProductLine format
+                        const seen = new Set<string>();
+                        productLines = [] as ProductLine[];
+                        for (const r of normData.results) {
+                            if (!seen.has(r.lineId)) {
+                                seen.add(r.lineId);
+                                productLines.push({
+                                    lineId: r.lineId,
+                                    displayName: r.normalized.product_line,
+                                    searchKeyword: r.normalized.trend_keywords[0] || r.normalized.product_line,
+                                    brand: r.normalized.brand,
+                                    category: r.normalized.category,
+                                    generation: r.normalized.generation || undefined,
+                                });
+                            }
+                        }
+                    }
+                }
+            } catch (normalizeError) {
+                console.warn('AI normalization failed, using regex fallback:', normalizeError);
+            }
+
+            // Fallback to regex classifier if normalization failed
+            if (!productLines || productLines.length === 0) {
+                productLines = getUniqueProductLines(productNames);
+            }
+
+            const response = await fetch('/api/trends', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ productLines, forceRefresh }),
+            });
+
+            const data: TrendFetchResponse = await response.json();
+
+            if (data.success && data.results.length > 0) {
+                const trendMap: Record<string, TrendResult> = {};
+                for (const result of data.results) {
+                    trendMap[result.lineId] = result;
+                }
+                setTrendData(trendMap);
+                setLastTrendUpdate(new Date().toLocaleString('ko-KR'));
+            }
+        } catch (error) {
+            console.error('Error fetching trend data:', error);
+        } finally {
+            setIsTrendLoading(false);
+        }
+    }, [products]);
 
     // Check if daily reset is needed
     const checkAndReset = () => {
@@ -375,6 +480,10 @@ export default function CoupangPage() {
             case 'brand':
                 aVal = a.brand || classifyBrand(a.productName);
                 bVal = b.brand || classifyBrand(b.productName);
+                break;
+            case 'trend':
+                aVal = productScores[a.id]?.trendScore ?? 0;
+                bVal = productScores[b.id]?.trendScore ?? 0;
                 break;
             case 'score':
                 aVal = productScores[a.id]?.totalScore ?? 0;
@@ -622,7 +731,7 @@ export default function CoupangPage() {
         setUpdateProgress(`${label}업데이트 중: 1/${urls.length}`);
         setIsUpdating(true);
 
-        window.location.href = urls[0];
+        safeNavigate(urls[0]);
     };
 
     // Continue to next product (called from UI or automatically)
@@ -650,7 +759,7 @@ export default function CoupangPage() {
         sessionStorage.setItem('coupang_update_index', nextIndex.toString());
         setUpdateProgress(`업데이트 중: ${nextIndex + 1}/${urls.length}`);
 
-        window.location.href = urls[nextIndex];
+        safeNavigate(urls[nextIndex]);
     };
 
     // Check if we have pending updates
@@ -823,6 +932,7 @@ export default function CoupangPage() {
                                 ? `${products.filter((_, i) => i % totalWorkers === workerIndex).length}개 담당 (전체 ${products.length}개)`
                                 : `${products.length}개 제품`
                             } | 마지막 리셋: {lastResetDate || '-'}
+                            {lastTrendUpdate && ` | 트렌드: ${lastTrendUpdate}`}
                         </div>
                         <div className="flex gap-2 items-center">
                             {updateProgress && (
@@ -830,6 +940,19 @@ export default function CoupangPage() {
                                     {updateProgress}
                                 </span>
                             )}
+                            <button
+                                onClick={() => fetchTrendData(true)}
+                                disabled={products.length === 0 || isTrendLoading}
+                                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                                title={lastTrendUpdate ? `마지막 갱신: ${lastTrendUpdate}` : '트렌드 데이터를 아직 조회하지 않았습니다'}
+                            >
+                                {isTrendLoading ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <TrendingUp className="w-4 h-4" />
+                                )}
+                                {isTrendLoading ? '조회 중...' : '트렌드 갱신'}
+                            </button>
                             <button
                                 onClick={handleAutoUpdate}
                                 disabled={products.length === 0 || isUpdating}
@@ -932,6 +1055,16 @@ export default function CoupangPage() {
                                         </th>
                                         <th
                                             className="px-3 py-3 text-center text-sm font-semibold cursor-pointer hover:bg-white/10"
+                                            onClick={() => handleSort('trend')}
+                                        >
+                                            <span className="inline-flex items-center justify-center">
+                                                <TrendingUp className="w-3 h-3 mr-1" />
+                                                트렌드
+                                                <SortIcon field="trend" />
+                                            </span>
+                                        </th>
+                                        <th
+                                            className="px-3 py-3 text-center text-sm font-semibold cursor-pointer hover:bg-white/10"
                                             onClick={() => handleSort('score')}
                                         >
                                             <span className="inline-flex items-center justify-center">
@@ -958,7 +1091,7 @@ export default function CoupangPage() {
                                 <tbody>
                                     {sortedProducts.length === 0 ? (
                                         <tr>
-                                            <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
+                                            <td colSpan={13} className="px-4 py-12 text-center text-gray-500">
                                                 추적 중인 제품이 없습니다. 위에서 제품을 추가해주세요.
                                             </td>
                                         </tr>
@@ -1024,6 +1157,31 @@ export default function CoupangPage() {
                                                         </span>
                                                     ) : (
                                                         <span className="text-gray-500">-</span>
+                                                    )}
+                                                </td>
+                                                {/* 트렌드 */}
+                                                <td className="px-3 py-3 text-center">
+                                                    {productScores[product.id] && productScores[product.id].trendScore > 0 ? (
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedTrendProduct(product);
+                                                                setShowTrendModal(true);
+                                                            }}
+                                                            className="flex flex-col items-center hover:bg-orange-500/10 rounded-lg px-2 py-1 transition-colors cursor-pointer"
+                                                            title="클릭하여 트렌드 상세 보기"
+                                                        >
+                                                            <span className={`text-sm font-semibold ${
+                                                                productScores[product.id].trendDirection === 'rising' ? 'text-green-400' :
+                                                                productScores[product.id].trendDirection === 'falling' ? 'text-red-400' :
+                                                                'text-gray-400'
+                                                            }`}>
+                                                                {productScores[product.id].trendDirection === 'rising' ? '↑' :
+                                                                 productScores[product.id].trendDirection === 'falling' ? '↓' : '→'}
+                                                                {' '}{productScores[product.id].trendScore}점
+                                                            </span>
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-gray-500 text-sm">-</span>
                                                     )}
                                                 </td>
                                                 {/* 점수 */}
@@ -1118,6 +1276,23 @@ export default function CoupangPage() {
                     }}
                 />
             )}
+            {/* Trend Detail Modal */}
+            {showTrendModal && selectedTrendProduct && (() => {
+                const lineId = getProductLineId(selectedTrendProduct.productName);
+                const trend = trendData[lineId];
+                if (!trend) return null;
+                return (
+                    <TrendDetailModal
+                        searchKeyword={trend.searchKeyword}
+                        trendResult={trend}
+                        trendScore={productScores[selectedTrendProduct.id]?.trendScore ?? 0}
+                        onClose={() => {
+                            setShowTrendModal(false);
+                            setSelectedTrendProduct(null);
+                        }}
+                    />
+                );
+            })()}
         </div>
     );
 }
