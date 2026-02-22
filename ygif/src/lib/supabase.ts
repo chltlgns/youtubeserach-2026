@@ -1,9 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
-// SSR-safe: polyfill sessionStorage for server-side rendering
-if (typeof globalThis.sessionStorage === 'undefined') {
+// SSR-safe: polyfill localStorage for server-side rendering
+if (typeof globalThis.localStorage === 'undefined') {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).sessionStorage = {
+    (globalThis as any).localStorage = {
         getItem: () => null,
         setItem: () => {},
         removeItem: () => {},
@@ -26,7 +26,7 @@ if (!supabaseAnonKey) {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
         // Custom storage that safely handles SSR (sessionStorage not available on server)
-        storage: typeof window !== 'undefined' ? sessionStorage : {
+        storage: typeof window !== 'undefined' ? localStorage : {
             getItem: () => null,
             setItem: () => {},
             removeItem: () => {},
@@ -62,3 +62,14 @@ export interface PriceHistoryDB {
     created_at: string;
 }
 
+export interface TrendHistoryDB {
+    id: string;
+    line_id: string;
+    search_keyword: string;
+    current_value: number;
+    average_value: number;
+    trend_direction: string;
+    trend_slope: number;
+    recorded_date: string;
+    created_at: string;
+}
