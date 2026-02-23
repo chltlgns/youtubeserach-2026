@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Coupang Price Tracker (Auto-Save)
 // @namespace    http://tampermonkey.net/
-// @version      2.3
+// @version      2.5
 // @description  쿠팡 제품 페이지 방문 시 가격 데이터를 Supabase에 자동 저장 (순차 업데이트 지원)
 // @author       YGIF
 // @match        *://*.coupang.com/*
@@ -26,14 +26,21 @@
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtYm93YnF4ZHJ5bmRzZWtvYm1oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4MjQ1NTAsImV4cCI6MjA4MzQwMDU1MH0.zbY__R1s7RLLSWEgmJfTYXSVz_G64sLIZEN1j5YpwKc';
 
     // ========== 인증 토큰 ==========
-    let AUTH_TOKEN = GM_getValue('auth_token', null) || {
-        "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFhY2ZkZGM4LWQwY2QtNDIzOC1iNjg1LTJhN2Y4OTVkMmI1OSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL3JtYm93YnF4ZHJ5bmRzZWtvYm1oLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiI4OGM0ZDg5OC0yNGRjLTQwMDMtYWVkMC0yZmU0M2Q1YjM5MDUiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzY3ODU5NjQ0LCJpYXQiOjE3Njc4NTYwNDQsImVtYWlsIjoiY2hsdGxnbnM5MjBAZ21haWwuY29tIiwicGhvbmUiOiIiLCJhcHBfbWV0YWRhdGEiOnsicHJvdmlkZXIiOiJlbWFpbCIsInByb3ZpZGVycyI6WyJlbWFpbCJdfSwidXNlcl9tZXRhZGF0YSI6eyJlbWFpbCI6ImNobHRsZ25zOTIwQGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJwaG9uZV92ZXJpZmllZCI6ZmFsc2UsInN1YiI6Ijg4YzRkODk4LTI0ZGMtNDAwMy1hZWQwLTJmZTQzZDViMzkwNSJ9LCJyb2xlIjoiYXV0aGVudGljYXRlZCIsImFhbCI6ImFhbDEiLCJhbXIiOlt7Im1ldGhvZCI6InBhc3N3b3JkIiwidGltZXN0YW1wIjoxNzY3ODU2MDQ0fV0sInNlc3Npb25faWQiOiI3MzY3NjhlNC1kOThhLTQyMDktOTgwZC0zZDM5ZDIwNTZlNzciLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.SjUhZuwjfXRTgKd_se1byOEhWadKEo_V0H8ZGTTfnAR7xsSxB9fGCWDorHBqXGW71Ga3pNnzy7WbjmPfivqFcA",
-        "refresh_token": "ipxwmzs44jvd",
-        "user": {
-            "id": "88c4d898-24dc-4003-aed0-2fe43d5b3905"
-        }
-    };
+    let AUTH_TOKEN = GM_getValue('auth_token', null);
     // =============================================
+
+    // JWT 토큰에서 만료 시간(Unix timestamp) 추출
+    function getTokenExpiry(token) {
+        if (!token || !token.access_token) return 0;
+        try {
+            const parts = token.access_token.split('.');
+            if (parts.length !== 3) return 0;
+            const payload = JSON.parse(atob(parts[1]));
+            return payload.exp || 0;
+        } catch (e) {
+            return 0;
+        }
+    }
 
     // JWT 토큰 만료 확인 (5분 여유)
     function isTokenExpiredOrSoon() {
@@ -208,6 +215,11 @@
 
     // 토큰 갱신
     function refreshAccessToken(callback) {
+        if (!AUTH_TOKEN || !AUTH_TOKEN.refresh_token) {
+            console.log('[Coupang Tracker] AUTH_TOKEN 또는 refresh_token 없음');
+            callback(false);
+            return;
+        }
         const refreshToken = AUTH_TOKEN.refresh_token;
         if (!refreshToken) {
             console.log('[Coupang Tracker] refresh_token 없음');
@@ -237,11 +249,20 @@
                             user: data.user || AUTH_TOKEN.user
                         };
                         GM_setValue('auth_token', AUTH_TOKEN);
-                        console.log('[Coupang Tracker] 토큰 갱신 성공!');
+                        const newExpiry = getTokenExpiry(AUTH_TOKEN);
+                        const now = Math.floor(Date.now() / 1000);
+                        console.log('[Coupang Tracker] ✅ 토큰 갱신 성공! 만료까지:', Math.floor((newExpiry - now) / 60), '분');
                         showNotification('🔄 토큰 갱신됨', '인증이 자동 갱신되었습니다');
                         callback(true);
                     } else {
-                        console.log('[Coupang Tracker] 토큰 갱신 실패:', data);
+                        console.log('[Coupang Tracker] ❌ 토큰 갱신 실패:', response.status,
+                            data.error_description || data.error || data.msg || JSON.stringify(data));
+                        // refresh_token이 만료/무효화된 경우 저장소 클리어
+                        if (data.error === 'invalid_grant' || response.status === 400) {
+                            console.log('[Coupang Tracker] refresh_token 무효화됨, 저장소 초기화');
+                            GM_setValue('auth_token', null);
+                            AUTH_TOKEN = null;
+                        }
                         callback(false);
                     }
                 } catch (e) {
@@ -558,8 +579,13 @@
     function setupYGIFIntegration() {
         console.log('[Coupang Tracker] YGIF 페이지 감지, 통합 설정 중...');
 
-        // YGIF localStorage에서 Supabase 토큰 동기화
+        // YGIF localStorage에서 Supabase 토큰 동기화 (즉시 + 지연)
         syncTokenFromLocalStorage();
+        // Supabase JS가 세션 복구 후 재동기화 (React hydration 대기)
+        setTimeout(syncTokenFromLocalStorage, 2000);
+        setTimeout(syncTokenFromLocalStorage, 5000);
+        // 주기적 동기화 (60초마다)
+        setInterval(syncTokenFromLocalStorage, 60000);
 
         // CustomEvent 리스너 (YGIF에서 이벤트 발생 시 처리)
         document.addEventListener('startCoupangUpdate', function (e) {
@@ -599,28 +625,60 @@
         console.log('[Coupang Tracker] YGIF 통합 완료 - CustomEvent "startCoupangUpdate" 대기 중');
     }
 
-    // YGIF localStorage에서 Supabase 토큰을 GM_setValue로 동기화
+    // YGIF localStorage ↔ GM_setValue 양방향 토큰 동기화
     function syncTokenFromLocalStorage() {
         try {
-            // Supabase JS 클라이언트가 사용하는 localStorage 키 패턴
+            // 진단: localStorage에서 Supabase 관련 키 모두 검색
+            const allKeys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.includes('sb-')) allKeys.push(key);
+            }
+            console.log('[Coupang Tracker] localStorage sb- 키 목록:', allKeys);
+
             const supabaseKey = 'sb-rmbowbqxdryndsekobmh-auth-token';
             const tokenStr = localStorage.getItem(supabaseKey);
+            const gmToken = GM_getValue('auth_token', null);
+            const now = Math.floor(Date.now() / 1000);
+
+            console.log('[Coupang Tracker] 진단 - localStorage 토큰 존재:', !!tokenStr,
+                '| GM 토큰 존재:', !!gmToken);
 
             if (tokenStr) {
                 const tokenData = JSON.parse(tokenStr);
+                console.log('[Coupang Tracker] 진단 - tokenData 키:', Object.keys(tokenData || {}));
+
                 if (tokenData && tokenData.access_token && tokenData.refresh_token) {
-                    AUTH_TOKEN = {
-                        access_token: tokenData.access_token,
-                        refresh_token: tokenData.refresh_token,
-                        user: tokenData.user
-                    };
-                    GM_setValue('auth_token', AUTH_TOKEN);
-                    console.log('[Coupang Tracker] ✅ YGIF localStorage에서 토큰 동기화 완료!');
-                    console.log('[Coupang Tracker] 토큰 만료까지:',
-                        Math.floor((tokenData.expires_at - Math.floor(Date.now() / 1000)) / 60), '분');
+                    const lsExpiry = getTokenExpiry(tokenData);
+                    const gmExpiry = getTokenExpiry(gmToken);
+
+                    if (gmToken && gmExpiry > lsExpiry) {
+                        // GM 토큰이 더 최신 (쿠팡에서 갱신됨) → GM 사용 + localStorage 역동기화
+                        AUTH_TOKEN = gmToken;
+                        tokenData.access_token = gmToken.access_token;
+                        tokenData.refresh_token = gmToken.refresh_token;
+                        tokenData.expires_at = gmExpiry;
+                        localStorage.setItem(supabaseKey, JSON.stringify(tokenData));
+                        console.log('[Coupang Tracker] ✅ GM 토큰이 더 최신 → localStorage 역동기화 완료!');
+                        console.log('[Coupang Tracker] 토큰 만료까지:', Math.floor((gmExpiry - now) / 60), '분');
+                    } else {
+                        // localStorage 토큰이 더 최신 → GM으로 동기화
+                        AUTH_TOKEN = {
+                            access_token: tokenData.access_token,
+                            refresh_token: tokenData.refresh_token,
+                            user: tokenData.user
+                        };
+                        GM_setValue('auth_token', AUTH_TOKEN);
+                        console.log('[Coupang Tracker] ✅ localStorage → GM 토큰 동기화 완료!');
+                        console.log('[Coupang Tracker] 토큰 만료까지:', Math.floor((lsExpiry - now) / 60), '분');
+                    }
                 }
+            } else if (gmToken) {
+                // localStorage 없지만 GM에 토큰 있음 → GM 사용
+                AUTH_TOKEN = gmToken;
+                console.log('[Coupang Tracker] localStorage 없음, GM 토큰 사용');
             } else {
-                console.log('[Coupang Tracker] YGIF localStorage에 토큰 없음');
+                console.log('[Coupang Tracker] ⚠️ 토큰 없음 (localStorage, GM 모두)');
             }
         } catch (e) {
             console.log('[Coupang Tracker] 토큰 동기화 에러:', e);
@@ -646,6 +704,12 @@
         console.log('[Coupang Tracker] 추출 데이터:', productData);
 
         if (productData.current_price > 0) {
+            // 토큰 자체가 없으면 바로 YGIF로 돌려보내기
+            if (!AUTH_TOKEN) {
+                console.log('[Coupang Tracker] ⚠️ 토큰 없음 - YGIF에서 로그인 필요');
+                stopUpdateAndGoBack('토큰 없음: YGIF(localhost:3000/coupang)에서 먼저 로그인해주세요');
+                return;
+            }
             // 토큰 만료 확인 후 필요시 갱신
             if (isTokenExpiredOrSoon()) {
                 console.log('[Coupang Tracker] 토큰 만료됨/곧 만료, 자동 갱신 시도...');
