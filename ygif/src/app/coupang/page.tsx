@@ -78,6 +78,11 @@ export default function CoupangPage() {
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
             setUser(session?.user ?? null);
+            // 토큰 갱신 시 유저스크립트에 알림 (CustomEvent + localStorage 시그널)
+            if (_event === 'TOKEN_REFRESHED' && session) {
+                document.dispatchEvent(new CustomEvent('ygifTokenRefreshed'));
+                localStorage.setItem('ygif_token_refreshed_at', Date.now().toString());
+            }
         });
 
         // 탭 복귀 시 세션 갱신 (장시간 비활성 후 토큰 만료 방지)
