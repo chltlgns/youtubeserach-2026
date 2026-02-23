@@ -25,12 +25,14 @@ if (!supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-        // Custom storage that safely handles SSR (sessionStorage not available on server)
         storage: typeof window !== 'undefined' ? localStorage : {
             getItem: () => null,
             setItem: () => {},
             removeItem: () => {},
         },
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true,
     },
 });
 
