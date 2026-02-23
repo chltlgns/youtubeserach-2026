@@ -80,7 +80,27 @@ export default function CoupangPage() {
             setUser(session?.user ?? null);
         });
 
-        return () => subscription.unsubscribe();
+        // 탭 복귀 시 세션 갱신 (장시간 비활성 후 토큰 만료 방지)
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                supabase.auth.getSession().then(({ data: { session } }) => {
+                    if (session) {
+                        const expiresAt = session.expires_at ?? 0;
+                        const now = Math.floor(Date.now() / 1000);
+                        // 만료 5분 이내이면 강제 갱신
+                        if (expiresAt - now < 300) {
+                            supabase.auth.refreshSession();
+                        }
+                    }
+                });
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            subscription.unsubscribe();
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, []);
 
     // Load products from Supabase
@@ -328,13 +348,31 @@ export default function CoupangPage() {
 
     // Fetch trend data for all products
     const fetchTrendData = useCallback(async (forceRefresh = false) => {
-        if (products.length === 0) return;
+        if (products.length === 0) {
+            console.warn('[트렌드] 제품이 없어서 트렌드 조회 건너뜀');
+            return;
+        }
         setIsTrendLoading(true);
+        console.log(`[트렌드] 트렌드 갱신 시작 (forceRefresh=${forceRefresh}, 제품수=${products.length})`);
 
         try {
             const productNames = products.map(p => p.productName);
 
-            const { data: { session } } = await supabase.auth.getSession();
+            let { data: { session } } = await supabase.auth.getSession();
+            // 세션이 만료되었거나 없으면 refresh 시도
+            if (!session || (session.expires_at && session.expires_at < Math.floor(Date.now() / 1000) + 60)) {
+                console.log('[트렌드] 세션 만료 임박/없음 - refreshSession 시도');
+                const { data: refreshed } = await supabase.auth.refreshSession();
+                session = refreshed.session;
+            }
+            console.log(`[트렌드] 세션 상태: ${session ? '로그인됨' : '미로그인'}`);
+            if (!session) {
+                console.error('[트렌드] 세션 없음 - 로그인이 필요합니다');
+                alert('트렌드 조회를 위해 로그인이 필요합니다.');
+                setIsTrendLoading(false);
+                return;
+            }
+
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
             if (session?.access_token) {
                 headers['Authorization'] = `Bearer ${session.access_token}`;
@@ -343,14 +381,18 @@ export default function CoupangPage() {
             // Try AI normalization first, fall back to regex
             let productLines: ProductLine[] | undefined;
             try {
+                console.log('[트렌드] Step 1: AI 정규화 요청 (/api/normalize)...');
                 const normalizeRes = await fetch('/api/normalize', {
                     method: 'POST',
                     headers,
                     body: JSON.stringify({ productNames, forceRefresh }),
                 });
 
+                console.log(`[트렌드] /api/normalize 응답: ${normalizeRes.status} ${normalizeRes.statusText}`);
+
                 if (normalizeRes.ok) {
                     const normData: NormalizationBatchResponse = await normalizeRes.json();
+                    console.log(`[트렌드] 정규화 결과: success=${normData.success}, results=${normData.results.length}, fromCache=${normData.fromCache}, fromAI=${normData.fromAI}, errors=${JSON.stringify(normData.errors)}`);
                     if (normData.success && normData.results.length > 0) {
                         // Deduplicate by lineId and convert to ProductLine format
                         const seen = new Set<string>();
@@ -368,24 +410,33 @@ export default function CoupangPage() {
                                 });
                             }
                         }
+                        console.log(`[트렌드] 고유 제품 라인: ${productLines.length}개`, productLines.map(l => `${l.lineId}: "${l.searchKeyword}"`));
                     }
+                } else {
+                    const errBody = await normalizeRes.text();
+                    console.error(`[트렌드] /api/normalize 실패: ${normalizeRes.status}`, errBody);
                 }
             } catch (normalizeError) {
-                console.warn('AI normalization failed, using regex fallback:', normalizeError);
+                console.warn('[트렌드] AI 정규화 실패, regex fallback 사용:', normalizeError);
             }
 
             // Fallback to regex classifier if normalization failed
             if (!productLines || productLines.length === 0) {
                 productLines = getUniqueProductLines(productNames);
+                console.log(`[트렌드] Regex fallback 사용: ${productLines.length}개 제품 라인`);
             }
 
+            console.log(`[트렌드] Step 2: 트렌드 데이터 요청 (/api/trends, ${productLines.length}개 라인)...`);
             const response = await fetch('/api/trends', {
                 method: 'POST',
                 headers,
                 body: JSON.stringify({ productLines, forceRefresh }),
             });
 
+            console.log(`[트렌드] /api/trends 응답: ${response.status} ${response.statusText}`);
+
             const data: TrendFetchResponse = await response.json();
+            console.log(`[트렌드] 트렌드 결과: success=${data.success}, results=${data.results.length}, fromCache=${data.fromCache}, fetched=${data.fetched}, errors=${JSON.stringify(data.errors)}`);
 
             if (data.success && data.results.length > 0) {
                 const trendMap: Record<string, TrendResult> = {};
@@ -394,9 +445,16 @@ export default function CoupangPage() {
                 }
                 setTrendData(trendMap);
                 setLastTrendUpdate(new Date().toLocaleString('ko-KR'));
+                console.log(`[트렌드] 완료! ${data.results.length}개 트렌드 데이터 업데이트됨`);
+            } else {
+                console.warn('[트렌드] 트렌드 데이터가 비어있거나 실패:', data);
+                if (data.errors && data.errors.length > 0) {
+                    alert(`트렌드 조회 오류: ${data.errors.join(', ')}`);
+                }
             }
         } catch (error) {
-            console.error('Error fetching trend data:', error);
+            console.error('[트렌드] 전체 에러:', error);
+            alert(`트렌드 조회 실패: ${error instanceof Error ? error.message : String(error)}`);
         } finally {
             setIsTrendLoading(false);
         }
@@ -764,6 +822,7 @@ export default function CoupangPage() {
 
     // Check if we have pending updates
     const getPendingUpdate = () => {
+        if (typeof window === 'undefined') return null;
         const queueStr = sessionStorage.getItem('coupang_update_queue');
         const indexStr = sessionStorage.getItem('coupang_update_index');
         if (!queueStr || !indexStr) return null;
