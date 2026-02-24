@@ -49,14 +49,10 @@ export async function POST(request: NextRequest) {
 
     try {
         const body = await request.json();
-        const {
-            translations,
-            maxResults = 10,
-            order = 'relevance', // relevance, date, viewCount, rating
-            publishedAfter,
-            publishedBefore,
-            excludeShorts = true,
-        } = body;
+        const { translations, publishedAfter, publishedBefore, excludeShorts = true } = body;
+        const maxResults = Math.min(Math.max(1, Number(body.maxResults) || 10), 50);
+        const allowedOrders = ['relevance', 'date', 'viewCount', 'rating'];
+        const order = allowedOrders.includes(body.order) ? body.order : 'relevance';
 
         if (!YOUTUBE_API_KEY) {
             return NextResponse.json(

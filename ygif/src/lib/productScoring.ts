@@ -1,16 +1,17 @@
 // Product Scoring Algorithm
-// 총점 = 구매수(30%) + 최저가 근접도(30%) + 리뷰 수(25%) + 할인율(10%) + 별점(5%) - 영상 패널티(-25, 3일 decay) - 브랜드 패널티(-15, 2일 decay)
+// 총점 = 구매수(25%) + 최저가 근접도(25%) + 리뷰 수(20%) + 트렌드(30%) - 영상 패널티(-25, 3일 decay) - 브랜드 패널티(-15, 2일 decay)
+
+import { TrendScoreInput } from './trendTypes';
 
 export interface ProductScoreInput {
     monthlyPurchases: number | null | undefined;
     reviewCount: number | null | undefined;
     currentPrice: number;
     lowestPrice: number;
-    discountRate: string; // e.g., "17%"
-    rating: number | null | undefined;
     videoCompletedAt: string | null | undefined; // ISO date string - this product's video
     brand: string; // e.g., "LG전자", "삼성전자"
     brandVideoCompletedAt: string | null | undefined; // ISO date - most recent video of same brand (from other products)
+    trendData: TrendScoreInput | null; // Google Trends 데이터
 }
 
 export interface ProductScoreResult {
@@ -18,8 +19,8 @@ export interface ProductScoreResult {
     purchaseScore: number;
     lowestPriceScore: number;
     reviewScore: number;
-    discountScore: number;
-    ratingScore: number;
+    trendScore: number;
+    trendDirection: 'rising' | 'falling' | 'stable' | null;
     videoPenalty: number;
     brandPenalty: number;
     penaltyDaysRemaining: number | null;
@@ -29,11 +30,10 @@ export interface ProductScoreResult {
 }
 
 // 가중치 상수
-const WEIGHT_PURCHASE = 0.3;      // 30%
-const WEIGHT_LOWEST_PRICE = 0.3;  // 30%
-const WEIGHT_REVIEW = 0.25;       // 25%
-const WEIGHT_DISCOUNT = 0.1;      // 10%
-const WEIGHT_RATING = 0.05;       // 5%
+const WEIGHT_PURCHASE = 0.25;      // 25%
+const WEIGHT_LOWEST_PRICE = 0.25;  // 25%
+const WEIGHT_REVIEW = 0.20;        // 20%
+// 트렌드 30%: 검색량 20% + 상승추세 10%
 
 // 패널티 상수
 const VIDEO_PENALTY_INITIAL = 25; // 영상 제작 시 초기 -25점
@@ -55,7 +55,7 @@ export function calculatePurchaseScore(
     const maxPurchases = Math.max(...validPurchases);
     const minPurchases = Math.min(...validPurchases);
 
-    if (maxPurchases === minPurchases) return 30; // 모두 같으면 중간점수
+    if (maxPurchases === minPurchases) return 12.5; // 모두 같으면 중간점수 (25% 가중치의 절반)
 
     // 정규화: 0~100 범위로
     const normalized = ((purchases - minPurchases) / (maxPurchases - minPurchases)) * 100;
@@ -97,39 +97,34 @@ export function calculateReviewScore(
     const maxReviews = Math.max(...validReviews);
     const minReviews = Math.min(...validReviews);
 
-    if (maxReviews === minReviews) return 12.5; // 모두 같으면 중간점수 (25% 가중치의 절반)
+    if (maxReviews === minReviews) return 10; // 모두 같으면 중간점수 (20% 가중치의 절반)
 
     const normalized = ((reviews - minReviews) / (maxReviews - minReviews)) * 100;
     return Math.round(normalized * WEIGHT_REVIEW);
 }
 
-// 할인율 점수 계산
-// discountRate: "17%" 형식의 문자열
-export function calculateDiscountScore(discountRate: string): number {
-    if (!discountRate) return 0;
+// 트렌드 점수 계산
+// 검색량 점수 (최대 20점) + 상승 보너스 (최대 10점)
+export function calculateTrendScore(input: TrendScoreInput | null): number {
+    if (!input) return 0;
 
-    // "17%" → 17
-    const discountValue = parseFloat(discountRate.replace('%', '').trim());
+    // 검색량 점수: currentValue(0-100)를 0-20점으로 변환
+    const volumeScore = (input.currentValue / 100) * 20;
 
-    if (isNaN(discountValue) || discountValue <= 0) return 0;
+    // 상승 보너스
+    let directionBonus = 0;
+    if (input.trendDirection === 'rising') {
+        // slope 크기에 비례하여 0~10점
+        directionBonus = Math.min(Math.abs(input.trendSlope) / 2, 10);
+    } else if (input.trendDirection === 'falling') {
+        // 하락 시 최대 -5점
+        directionBonus = -Math.min(Math.abs(input.trendSlope) / 4, 5);
+    }
 
-    // 0~100% 할인율을 0~100 점수로 정규화
-    const normalized = Math.min(discountValue, 100);
-    return Math.round(normalized * WEIGHT_DISCOUNT);
-}
-
-// 별점 점수 계산
-// rating: 0~5 사이의 별점
-export function calculateRatingScore(rating: number | null | undefined): number {
-    if (!rating || rating <= 0) return 0;
-
-    // 0~5 → 0~100으로 정규화
-    const normalized = (rating / 5) * 100;
-    return Math.round(normalized * WEIGHT_RATING);
+    return Math.round(Math.max(volumeScore + directionBonus, 0));
 }
 
 // 영상 제작 패널티 계산 (점진적 감소)
-// 초기 -50점에서 7일간 선형 감소
 export function calculateVideoDecayPenalty(
     videoCompletedAt: string | null | undefined
 ): { penalty: number; daysRemaining: number | null } {
@@ -146,7 +141,6 @@ export function calculateVideoDecayPenalty(
         return { penalty: 0, daysRemaining: null };
     }
 
-    // 선형 감소: penalty = -50 * (1 - daysSinceVideo / 7)
     const penalty = VIDEO_PENALTY_INITIAL * (1 - diffDays / VIDEO_PENALTY_DAYS);
     const daysRemaining = Math.ceil(VIDEO_PENALTY_DAYS - diffDays);
 
@@ -157,7 +151,6 @@ export function calculateVideoDecayPenalty(
 }
 
 // 브랜드 패널티 계산 (점진적 감소)
-// 초기 -30점에서 5일간 선형 감소
 export function calculateBrandDecayPenalty(
     brandVideoCompletedAt: string | null | undefined
 ): { penalty: number; daysRemaining: number | null } {
@@ -174,7 +167,6 @@ export function calculateBrandDecayPenalty(
         return { penalty: 0, daysRemaining: null };
     }
 
-    // 선형 감소: penalty = -30 * (1 - daysSinceVideo / 5)
     const penalty = BRAND_PENALTY_INITIAL * (1 - diffDays / BRAND_PENALTY_DAYS);
     const daysRemaining = Math.ceil(BRAND_PENALTY_DAYS - diffDays);
 
@@ -193,8 +185,7 @@ export function calculateProductScore(
     const purchaseScore = calculatePurchaseScore(input.monthlyPurchases, allPurchases);
     const lowestPriceScore = calculateLowestPriceScore(input.currentPrice, input.lowestPrice);
     const reviewScore = calculateReviewScore(input.reviewCount, allReviews);
-    const discountScore = calculateDiscountScore(input.discountRate);
-    const ratingScore = calculateRatingScore(input.rating);
+    const trendScore = calculateTrendScore(input.trendData);
 
     const { penalty: videoPenalty, daysRemaining: penaltyDaysRemaining } =
         calculateVideoDecayPenalty(input.videoCompletedAt);
@@ -205,8 +196,7 @@ export function calculateProductScore(
         purchaseScore +
         lowestPriceScore +
         reviewScore +
-        discountScore +
-        ratingScore -
+        trendScore -
         videoPenalty -
         brandPenalty;
 
@@ -217,8 +207,8 @@ export function calculateProductScore(
         purchaseScore,
         lowestPriceScore,
         reviewScore,
-        discountScore,
-        ratingScore,
+        trendScore,
+        trendDirection: input.trendData?.trendDirection ?? null,
         videoPenalty,
         brandPenalty,
         penaltyDaysRemaining,

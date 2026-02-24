@@ -293,6 +293,15 @@ export default function CoupangPage() {
 
     // 순차 업데이트 진행 확인 (뒤로 가기로 돌아왔을 때만)
     useEffect(() => {
+        // tokenRefresh 파라미터는 큐 상태와 무관하게 항상 URL에서 제거 (stale param 방지)
+        const initParams = new URLSearchParams(window.location.search);
+        const isTokenRefresh = initParams.get('tokenRefresh') === '1';
+        if (isTokenRefresh) {
+            initParams.delete('tokenRefresh');
+            const newSearch = initParams.toString();
+            window.history.replaceState({}, '', window.location.pathname + (newSearch ? '?' + newSearch : ''));
+        }
+
         const isInProgress = sessionStorage.getItem('coupang_update_in_progress');
         if (!isInProgress) {
             sessionStorage.removeItem('coupang_update_queue');
@@ -323,6 +332,20 @@ export default function CoupangPage() {
         const params = new URLSearchParams(window.location.search);
         const w = params.get('worker');
         const label = w !== null ? `[워커${w}] ` : '';
+
+        // 토큰 갱신 후 복귀: 같은 제품 재시도 (인덱스 유지)
+        if (isTokenRefresh) {
+            console.log(`${label}[YGIF] 토큰 갱신 후 복귀 - 같은 제품 재시도: ${currentIndex + 1}/${urls.length}`);
+            setUpdateProgress(`${label}토큰 갱신 후 재시도: ${currentIndex + 1}/${urls.length}`);
+            setIsUpdating(true);
+            // 7초 대기: Supabase JS 초기화(~2s) + autoRefreshToken 네트워크(~2s)
+            //          + TOKEN_REFRESHED → syncTokenFromLocalStorage → GM_setValue(~0.5s) + 여유(~2.5s)
+            setTimeout(() => {
+                sessionStorage.removeItem(processingKey);
+                safeNavigate(urls[currentIndex]); // 같은 인덱스 재시도
+            }, 7000);
+            return;
+        }
 
         console.log(`${label}[YGIF] 뒤로 가기 감지 - 인덱스: ${currentIndex}, 전체: ${urls.length}`);
 

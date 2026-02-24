@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Coupang Price Tracker (Auto-Save)
 // @namespace    http://tampermonkey.net/
-// @version      2.7
+// @version      2.8
 // @description  쿠팡 제품 페이지 방문 시 가격 데이터를 Supabase에 자동 저장 (순차 업데이트 지원)
 // @author       YGIF
 // @match        *://*.coupang.com/*
@@ -215,90 +215,38 @@
         showNotification('❌ 업데이트 중단', errorMessage + '\n\nYGIF로 돌아갑니다...', false);
 
         // 5초 후 YGIF로 이동
-        const ygifUrl = window.location.href.includes('ygif-pied.vercel.app')
-            ? 'https://ygif-pied.vercel.app/coupang'
-            : 'http://localhost:3000/coupang';
+        const ygifUrl = GM_getValue('ygif_base_url', 'https://ygif-pied.vercel.app/coupang');
         setTimeout(() => {
             window.location.href = ygifUrl;
         }, 5000);
     }
 
-
-    // 토큰 갱신 (isRetry: refresh_token_not_found 시 GM 재읽기 후 1회 재시도)
-    function refreshAccessToken(callback, isRetry) {
-        if (!AUTH_TOKEN || !AUTH_TOKEN.refresh_token) {
-            console.log('[Coupang Tracker] AUTH_TOKEN 또는 refresh_token 없음');
-            callback(false);
+    // YGIF로 이동하여 토큰 갱신 (유저스크립트에서 직접 refresh하지 않음 - race condition 방지)
+    function goToYGIFForTokenRefresh() {
+        // 무한 리다이렉트 루프 방지: 3회 초과 시 중단
+        const retryCount = GM_getValue('token_refresh_retries', 0);
+        if (retryCount >= 3) {
+            GM_setValue('token_refresh_retries', 0);
+            stopUpdateAndGoBack('토큰 갱신 3회 실패: YGIF에서 다시 로그인해주세요');
             return;
         }
-        const refreshToken = AUTH_TOKEN.refresh_token;
+        GM_setValue('token_refresh_retries', retryCount + 1);
 
-        console.log('[Coupang Tracker] 토큰 갱신 중...', isRetry ? '(재시도)' : '');
-
-        GM_xmlhttpRequest({
-            method: 'POST',
-            url: `${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
-            headers: {
-                'apikey': SUPABASE_ANON_KEY,
-                'Content-Type': 'application/json'
-            },
-            data: JSON.stringify({
-                refresh_token: refreshToken
-            }),
-            onload: function (response) {
-                try {
-                    const data = JSON.parse(response.responseText);
-                    if (data.access_token) {
-                        AUTH_TOKEN = {
-                            access_token: data.access_token,
-                            refresh_token: data.refresh_token || refreshToken,
-                            user: data.user || AUTH_TOKEN.user
-                        };
-                        GM_setValue('auth_token', AUTH_TOKEN);
-                        const newExpiry = getTokenExpiry(AUTH_TOKEN);
-                        const now = Math.floor(Date.now() / 1000);
-                        console.log('[Coupang Tracker] ✅ 토큰 갱신 성공! 만료까지:', Math.floor((newExpiry - now) / 60), '분');
-                        showNotification('🔄 토큰 갱신됨', '인증이 자동 갱신되었습니다');
-                        callback(true);
-                    } else {
-                        console.log('[Coupang Tracker] ❌ 토큰 갱신 실패:', response.status,
-                            data.error_description || data.error || data.msg || JSON.stringify(data));
-
-                        // refresh_token_not_found: 토큰 rotation으로 인해 GM의 refresh_token이 무효화됨
-                        // 재시도 전에 GM에서 최신 토큰을 다시 읽어서 한 번 더 시도
-                        if ((data.error === 'invalid_grant' || data.error_code === 'refresh_token_not_found' || response.status === 400) && !isRetry) {
-                            console.log('[Coupang Tracker] refresh_token 무효 - GM에서 최신 토큰 재읽기 후 재시도');
-                            const latestGM = GM_getValue('auth_token', null);
-                            if (latestGM && latestGM.refresh_token && latestGM.refresh_token !== refreshToken) {
-                                // 다른 윈도우/탭에서 이미 갱신된 토큰이 GM에 있음
-                                AUTH_TOKEN = latestGM;
-                                console.log('[Coupang Tracker] GM에서 갱신된 토큰 발견, 재시도');
-                                refreshAccessToken(callback, true);
-                                return;
-                            }
-                            // GM도 같은 토큰이면 → 정말 무효화됨
-                            console.log('[Coupang Tracker] refresh_token 완전 무효화됨, 저장소 초기화');
-                            GM_setValue('auth_token', null);
-                            AUTH_TOKEN = null;
-                        } else if (isRetry) {
-                            // 재시도도 실패 → 저장소 초기화
-                            console.log('[Coupang Tracker] 재시도도 실패, 저장소 초기화');
-                            GM_setValue('auth_token', null);
-                            AUTH_TOKEN = null;
-                        }
-                        callback(false);
-                    }
-                } catch (e) {
-                    console.log('[Coupang Tracker] 토큰 갱신 에러:', e);
-                    callback(false);
-                }
-            },
-            onerror: function (err) {
-                console.log('[Coupang Tracker] 토큰 갱신 네트워크 에러:', err);
-                callback(false);
-            }
-        });
+        console.log(`[Coupang Tracker] 토큰 만료/무효 - YGIF로 이동하여 갱신 위임 (시도 ${retryCount + 1}/3)`);
+        const ygifUrl = GM_getValue('ygif_base_url', 'https://ygif-pied.vercel.app/coupang');
+        showNotification('🔄 토큰 갱신', `YGIF로 이동하여 토큰을 갱신합니다... (${retryCount + 1}/3)`);
+        setTimeout(() => {
+            const url = new URL(ygifUrl);
+            url.searchParams.set('tokenRefresh', '1');
+            window.location.href = url.toString();
+        }, 1500);
     }
+
+
+    // [v2.8] refreshAccessToken 제거됨
+    // 토큰 갱신은 오직 YGIF의 Supabase JS(autoRefreshToken)만 담당
+    // 유저스크립트에서 직접 /auth/v1/token을 호출하면 Refresh Token Rotation으로 인한 race condition 발생
+    // 대신 goToYGIFForTokenRefresh()로 YGIF에 위임
 
     // 제품 페이지인지 확인
     function isProductPage() {
@@ -475,16 +423,10 @@
                 'Content-Type': 'application/json'
             },
             onload: function (response) {
-                // 401 에러 시 토큰 갱신 후 재시도
-                if (response.status === 401 && !isRetry) {
-                    console.log('[Coupang Tracker] 401 에러, 토큰 갱신 시도');
-                    refreshAccessToken(function (success) {
-                        if (success) {
-                            saveToSupabase(productData, true);
-                        } else {
-                            showNotification('❌ 인증 만료', 'YGIF에서 다시 로그인해주세요', false);
-                        }
-                    });
+                // 401 에러 시 YGIF로 이동하여 토큰 갱신 (직접 refresh하지 않음)
+                if (response.status === 401) {
+                    console.log('[Coupang Tracker] 401 에러, YGIF로 이동하여 토큰 갱신');
+                    goToYGIFForTokenRefresh();
                     return;
                 }
 
@@ -530,6 +472,7 @@
                                     '✅ 가격 업데이트됨',
                                     `${productData.product_name.substring(0, 25)}...\n💰 ${productData.current_price.toLocaleString()}원\n📊 ${changeText}`
                                 );
+                                GM_setValue('token_refresh_retries', 0); // 성공 시 리다이렉트 카운터 리셋
                                 // 가격 히스토리 저장 후 뒤로 가기
                                 savePriceHistory(existingProduct.id, productData.current_price, accessToken, goBackToYGIF);
                             } else {
@@ -569,6 +512,7 @@
                                     '✅ 제품 추가됨',
                                     `${productData.product_name.substring(0, 25)}...\n💰 ${productData.current_price.toLocaleString()}원`
                                 );
+                                GM_setValue('token_refresh_retries', 0); // 성공 시 리다이렉트 카운터 리셋
                                 // 새로 생성된 제품의 ID로 가격 히스토리 저장 후 뒤로 가기
                                 try {
                                     const newProduct = JSON.parse(res.responseText);
@@ -603,6 +547,9 @@
     function setupYGIFIntegration() {
         console.log('[Coupang Tracker] YGIF 페이지 감지, 통합 설정 중...');
 
+        // YGIF 기본 URL 저장 (쿠팡에서 토큰 갱신 시 돌아올 URL)
+        GM_setValue('ygif_base_url', window.location.origin + '/coupang');
+
         // YGIF localStorage에서 Supabase 토큰 동기화 (즉시 + 지연)
         syncTokenFromLocalStorage();
         // Supabase JS가 세션 복구 후 재동기화 (React hydration 대기)
@@ -620,7 +567,7 @@
 
         // localStorage 변경 감지 (다른 탭에서 토큰 갱신 시)
         window.addEventListener('storage', function (e) {
-            if (e.key && (e.key.includes('sb-') && e.key.includes('auth-token') || e.key === 'ygif_token_refreshed_at')) {
+            if (e.key && ((e.key.includes('sb-') && e.key.includes('auth-token')) || e.key === 'ygif_token_refreshed_at')) {
                 console.log('[Coupang Tracker] localStorage 토큰 변경 감지:', e.key);
                 syncTokenFromLocalStorage();
             }
@@ -751,16 +698,8 @@
             }
             // 토큰 만료 확인 후 필요시 갱신
             if (isTokenExpiredOrSoon()) {
-                console.log('[Coupang Tracker] 토큰 만료됨/곧 만료, 자동 갱신 시도...');
-                refreshAccessToken(function (success) {
-                    if (success) {
-                        console.log('[Coupang Tracker] 토큰 갱신 완료, 저장 진행');
-                        saveToSupabase(productData);
-                    } else {
-                        // 인증 실패 - 업데이트 중단
-                        stopUpdateAndGoBack('인증 만료: YGIF에서 다시 로그인해주세요');
-                    }
-                });
+                console.log('[Coupang Tracker] 토큰 만료됨/곧 만료, YGIF로 이동하여 갱신');
+                goToYGIFForTokenRefresh();
             } else {
                 saveToSupabase(productData);
             }

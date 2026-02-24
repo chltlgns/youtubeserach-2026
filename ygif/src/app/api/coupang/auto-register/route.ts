@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getBrandById } from '@/lib/coupangBrands';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 // Env var validation
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -56,6 +57,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 export async function POST(request: NextRequest) {
+    // Rate limiting
+    const rateLimitResponse = checkRateLimit(request, { maxPerMinute: 2, maxPerHour: 10 });
+    if (rateLimitResponse) return rateLimitResponse;
+
     // Check if scraper is enabled
     if (process.env.ENABLE_SCRAPER !== 'true') {
         return new Response(
@@ -131,6 +136,13 @@ export async function POST(request: NextRequest) {
                 try {
                     const body: AutoRegisterRequest = await request.json();
                     const { brands, batchSize, minPrice, maxPrice, sortBy, scrapeMultiplier } = body;
+
+                    if (!Array.isArray(brands) || brands.length === 0 || brands.length > 20) {
+                        sendEvent({ type: 'error', message: '브랜드 수는 1~20개 사이여야 합니다.' });
+                        closeStream();
+                        return;
+                    }
+
                     const multiplier = Math.min(Math.max(scrapeMultiplier || 3, 1), 5); // clamp 1-5, default 3
 
                     // Auth: get user from authorization header

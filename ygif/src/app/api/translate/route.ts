@@ -24,9 +24,9 @@ export async function POST(request: NextRequest) {
     try {
         const { keyword, countries } = await request.json();
 
-        if (!keyword || typeof keyword !== 'string') {
+        if (!keyword || typeof keyword !== 'string' || keyword.trim().length === 0 || keyword.length > 200) {
             return NextResponse.json(
-                { error: 'Keyword is required' },
+                { error: 'Keyword is required (max 200 characters)' },
                 { status: 400 }
             );
         }
