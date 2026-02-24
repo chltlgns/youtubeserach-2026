@@ -52,6 +52,7 @@ export default function CoupangPage() {
     const [trendData, setTrendData] = useState<Record<string, TrendResult>>({});
     const [isTrendLoading, setIsTrendLoading] = useState(false);
     const [lastTrendUpdate, setLastTrendUpdate] = useState<string | null>(null);
+    const [normLineIdMap, setNormLineIdMap] = useState<Record<string, string>>({});
 
     // 병렬 워커 파라미터 읽기
     const [workerIndex, setWorkerIndex] = useState(-1);
@@ -261,8 +262,8 @@ export default function CoupangPage() {
                     brandVideoDate = otherBrandVideos[0];
                 }
 
-                // Get trend data for this product's line
-                const lineId = getProductLineId(p.productName);
+                // Get trend data for this product's line (AI normalization → regex fallback)
+                const lineId = normLineIdMap[p.productName] ?? getProductLineId(p.productName);
                 const trend = trendData[lineId] ?? null;
                 const trendInput = trend ? {
                     currentValue: trend.currentValue,
@@ -289,7 +290,7 @@ export default function CoupangPage() {
         };
 
         calculateScores();
-    }, [products, trendData]);
+    }, [products, trendData, normLineIdMap]);
 
     // 순차 업데이트 진행 확인 (뒤로 가기로 돌아왔을 때만)
     useEffect(() => {
@@ -422,6 +423,13 @@ export default function CoupangPage() {
                     const normData: NormalizationBatchResponse = await normalizeRes.json();
                     console.log(`[트렌드] 정규화 결과: success=${normData.success}, results=${normData.results.length}, fromCache=${normData.fromCache}, fromAI=${normData.fromAI}, errors=${JSON.stringify(normData.errors)}`);
                     if (normData.success && normData.results.length > 0) {
+                        // Build productName → AI lineId mapping for UI lookup
+                        const nameToLineId: Record<string, string> = {};
+                        for (const r of normData.results) {
+                            nameToLineId[r.originalName] = r.lineId;
+                        }
+                        setNormLineIdMap(nameToLineId);
+
                         // Deduplicate by lineId and convert to ProductLine format
                         const seen = new Set<string>();
                         productLines = [] as ProductLine[];
@@ -1365,7 +1373,7 @@ export default function CoupangPage() {
             )}
             {/* Trend Detail Modal */}
             {showTrendModal && selectedTrendProduct && (() => {
-                const lineId = getProductLineId(selectedTrendProduct.productName);
+                const lineId = normLineIdMap[selectedTrendProduct.productName] ?? getProductLineId(selectedTrendProduct.productName);
                 const trend = trendData[lineId];
                 if (!trend) return null;
                 return (
