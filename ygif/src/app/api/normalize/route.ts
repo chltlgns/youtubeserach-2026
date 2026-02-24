@@ -29,15 +29,28 @@ export async function POST(request: NextRequest) {
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
         const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
         const geminiApiKey = process.env.GEMINI_API_KEY;
+
+        console.log('[API /normalize] 환경변수 상태:', {
+            supabaseUrl: !!supabaseUrl,
+            serviceKey: !!serviceKey,
+            geminiApiKey: !!geminiApiKey,
+            productCount: productNames.length,
+            forceRefresh,
+        });
+
         if (!supabaseUrl || !serviceKey) {
+            console.error('[API /normalize] Supabase 설정 누락');
             return NextResponse.json({ error: 'Supabase configuration missing' }, { status: 500 });
         }
         if (!geminiApiKey) {
+            console.error('[API /normalize] Gemini API 키 누락');
             return NextResponse.json({ error: 'Gemini API key not configured' }, { status: 500 });
         }
 
         // Call normalizer
+        console.log(`[API /normalize] 정규화 시작: ${productNames.length}개 제품`);
         const result = await normalizeProducts(productNames, supabaseUrl, serviceKey, geminiApiKey, forceRefresh);
+        console.log(`[API /normalize] 정규화 완료: success=${result.success}, results=${result.results.length}, fromCache=${result.fromCache}, fromAI=${result.fromAI}, errors=${JSON.stringify(result.errors)}`);
 
         return NextResponse.json(result);
     } catch (error) {
