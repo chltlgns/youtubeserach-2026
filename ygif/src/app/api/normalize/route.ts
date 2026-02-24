@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { normalizeProducts } from '@/lib/productNormalizer';
 
+export const maxDuration = 30;
+
 export async function POST(request: NextRequest) {
     // Rate limit: 3/min, 20/hour
     const rateLimitResponse = checkRateLimit(request, { maxPerMinute: 3, maxPerHour: 20 });

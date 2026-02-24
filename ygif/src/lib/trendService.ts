@@ -154,6 +154,8 @@ async function fetchTrendBatch(
             startTime: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // 30일 전
             geo: 'KR',
             hl: 'ko',
+            // NOTE: interestOverTime은 YouTube 기준 유지 (기존 trend_cache 값 스케일 호환)
+            // relatedQueries만 웹 검색으로 변경됨
             property: 'youtube',
         });
 
@@ -338,7 +340,7 @@ export async function fetchRelatedQueries(
             startTime: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
             geo: 'KR',
             hl: 'ko',
-            property: 'youtube',
+            property: '',
         });
 
         const parsed = JSON.parse(response);
@@ -375,7 +377,7 @@ export async function fetchRelatedQueries(
                     startTime: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
                     geo: 'KR',
                     hl: 'ko',
-                    property: 'youtube',
+                    property: '',
                 });
                 const retryParsed = JSON.parse(retryResponse);
                 const retryData = retryParsed?.default;

@@ -164,7 +164,7 @@ export function classifyProductLine(productName: string): ProductLine {
     if (!config) {
         const words = productName.split(/\s+/).slice(0, 3).join(' ');
         const lineId = 'other-' + words.toLowerCase().replace(/[^a-z0-9가-힣]/g, '-').replace(/-+/g, '-');
-        return { lineId, displayName: words, searchKeyword: words, brand: '기타' };
+        return { lineId, displayName: words, searchKeyword: words, brand: '기타', category: '기타' };
     }
 
     // 브랜드별 라인 패턴 매칭
@@ -173,12 +173,14 @@ export function classifyProductLine(productName: string): ProductLine {
             let displayName = line.baseName;
             let searchKeyword = line.baseKeyword;
             let lineIdSuffix = '';
+            let generation = '';
 
             // 세대 추출 (genRegex)
             if (line.genRegex) {
                 const genMatch = productName.match(line.genRegex);
                 const gen = genMatch?.[1] || genMatch?.[2] || '';
                 if (gen) {
+                    generation = gen;
                     displayName += gen;
                     searchKeyword += gen;
                     lineIdSuffix += `-${gen}`;
@@ -190,6 +192,7 @@ export function classifyProductLine(productName: string): ProductLine {
                 const chipMatch = productName.match(line.chipRegex);
                 if (chipMatch?.[1]) {
                     const chip = `M${chipMatch[1]}`;
+                    generation = chip;
                     displayName += ` ${chip}`;
                     searchKeyword += ` ${chip}`;
                     lineIdSuffix += `-m${chipMatch[1]}`;
@@ -213,6 +216,8 @@ export function classifyProductLine(productName: string): ProductLine {
                 displayName,
                 searchKeyword,
                 brand: config.brand,
+                category: '노트북',
+                generation: generation || undefined,
             };
         }
     }
@@ -223,6 +228,7 @@ export function classifyProductLine(productName: string): ProductLine {
         displayName: config.fallback.baseName,
         searchKeyword: config.fallback.baseKeyword,
         brand: config.brand,
+        category: '노트북',
     };
 }
 
