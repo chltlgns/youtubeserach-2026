@@ -8,10 +8,12 @@ import { NormalizedProduct, NormalizationResult, NormalizationBatchResponse } fr
 import { classifyProductLine } from './productLineClassifier';
 
 const BATCH_SIZE = 15;
-const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 3000;
+const MAX_RETRIES = 1;
+const RETRY_DELAY_MS = 2000;
 const CONFIDENCE_THRESHOLD = 0.5;
 const CACHE_TTL_DAYS = 30;
+const GEMINI_CALL_TIMEOUT_MS = 8000;
+const GLOBAL_TIME_BUDGET_MS = 25000;
 
 const SYSTEM_PROMPT = `You are a Korean e-commerce product name normalizer for Coupang.
 
@@ -99,6 +101,7 @@ export async function normalizeProducts(
     geminiApiKey: string,
     forceRefresh = false,
 ): Promise<NormalizationBatchResponse> {
+    const startTime = Date.now();
     const response: NormalizationBatchResponse = {
         success: true,
         results: [],
@@ -194,15 +197,37 @@ export async function normalizeProducts(
         },
     });
 
-    // Step 4: Process in batches
+    // Step 4: Process in batches (startTime은 함수 시작 시점 기준)
     for (let i = 0; i < namesToProcess.length; i += BATCH_SIZE) {
+        // 전체 시간 예산 초과 시 나머지 전부 regex fallback
+        if (Date.now() - startTime > GLOBAL_TIME_BUDGET_MS) {
+            console.warn(`[Normalizer] Time budget exceeded (${GLOBAL_TIME_BUDGET_MS}ms). Falling back to regex for remaining ${namesToProcess.length - i} products.`);
+            for (let k = i; k < namesToProcess.length; k++) {
+                response.results.push(fallbackToRegex(namesToProcess[k]));
+                response.fromFallback++;
+            }
+            break;
+        }
+
         const batch = namesToProcess.slice(i, i + BATCH_SIZE);
         let batchProcessed = false;
 
         for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
             try {
                 const userPrompt = JSON.stringify(batch);
-                const result = await model.generateContent(userPrompt);
+                let timerId: ReturnType<typeof setTimeout>;
+                const timeoutPromise = new Promise<never>((_, reject) => {
+                    timerId = setTimeout(() => reject(new Error('Gemini timeout')), GEMINI_CALL_TIMEOUT_MS);
+                });
+                let result;
+                try {
+                    result = await Promise.race([
+                        model.generateContent(userPrompt),
+                        timeoutPromise,
+                    ]);
+                } finally {
+                    clearTimeout(timerId!);
+                }
                 const text = result.response.text();
 
                 let parsed: NormalizedProduct[];
