@@ -12,8 +12,8 @@ const MAX_RETRIES = 0;
 const RETRY_DELAY_MS = 2000;
 const CONFIDENCE_THRESHOLD = 0.5;
 const CACHE_TTL_DAYS = 30;
-const GEMINI_CALL_TIMEOUT_MS = 15000;
-const GLOBAL_TIME_BUDGET_MS = 25000;
+const GEMINI_CALL_TIMEOUT_MS = 10000;
+const GLOBAL_TIME_BUDGET_MS = 18000;
 
 const SYSTEM_PROMPT = `You are a Korean e-commerce product name normalizer for Coupang.
 
