@@ -8,7 +8,7 @@ import { NormalizedProduct, NormalizationResult, NormalizationBatchResponse } fr
 import { classifyProductLine } from './productLineClassifier';
 
 const BATCH_SIZE = 15;
-const MAX_RETRIES = 1;
+const MAX_RETRIES = 0;
 const RETRY_DELAY_MS = 2000;
 const CONFIDENCE_THRESHOLD = 0.5;
 const CACHE_TTL_DAYS = 30;
