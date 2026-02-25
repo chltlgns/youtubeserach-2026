@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NormalizedProduct, NormalizationResult, NormalizationBatchResponse } from './productNormalizerTypes';
 import { classifyProductLine } from './productLineClassifier';
 
-const BATCH_SIZE = 15;
+const BATCH_SIZE = 8;
 const MAX_RETRIES = 0;
 const RETRY_DELAY_MS = 2000;
 const CONFIDENCE_THRESHOLD = 0.5;
