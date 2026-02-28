@@ -6,7 +6,7 @@ import { ProductLine, TrendResult, RelatedQuery } from './trendTypes';
 
 const CACHE_TTL_DAYS = 7;
 const BATCH_SIZE = 4; // 실제 키워드 슬롯 (앵커 키워드 1개 제외)
-const BATCH_DELAY_MS = 2000;
+const BATCH_DELAY_MS = 5000;
 const CATEGORY_ANCHORS: Record<string, string> = {
     '노트북': '노트북',
     '데스크탑': '데스크탑',

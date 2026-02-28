@@ -7,13 +7,11 @@ import { createClient } from '@supabase/supabase-js';
 import { NormalizedProduct, NormalizationResult, NormalizationBatchResponse } from './productNormalizerTypes';
 import { classifyProductLine } from './productLineClassifier';
 
-const BATCH_SIZE = 8;
-const MAX_RETRIES = 0;
-const RETRY_DELAY_MS = 2000;
+const CONCURRENCY_LIMIT = 5;
 const CONFIDENCE_THRESHOLD = 0.5;
 const CACHE_TTL_DAYS = 30;
 const GEMINI_CALL_TIMEOUT_MS = 10000;
-const GLOBAL_TIME_BUDGET_MS = 18000;
+const GLOBAL_TIME_BUDGET_MS = 20000;
 
 const SYSTEM_PROMPT = `You are a Korean e-commerce product name normalizer for Coupang.
 
@@ -84,11 +82,114 @@ function fallbackToRegex(originalName: string): NormalizationResult {
     };
 }
 
+interface ConcurrentOptions {
+    concurrency: number;
+    timeoutMs: number;
+    timeBudgetMs: number;
+}
+
+interface ConcurrentResult {
+    results: NormalizationResult[];
+    fromAI: number;
+    fromFallback: number;
+    errors: string[];
+}
+
 /**
- * Sleep helper for retry delays
+ * Process products individually in parallel with concurrency limit.
+ * Each product gets its own Gemini call (fast ~2-3s) instead of slow batch calls.
  */
-function sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+export async function normalizeProductsConcurrent(
+    productNames: string[],
+    model: { generateContent: (prompt: string) => Promise<{ response: { text: () => string } }> },
+    options: ConcurrentOptions,
+): Promise<ConcurrentResult> {
+    const { concurrency, timeoutMs, timeBudgetMs } = options;
+    const startTime = Date.now();
+    const result: ConcurrentResult = { results: [], fromAI: 0, fromFallback: 0, errors: [] };
+
+    if (productNames.length === 0) return result;
+
+    // Pre-allocate results array to maintain order
+    const orderedResults: NormalizationResult[] = new Array(productNames.length);
+
+    async function processOne(index: number): Promise<void> {
+        const name = productNames[index];
+
+        // Check global time budget before starting
+        if (Date.now() - startTime > timeBudgetMs) {
+            orderedResults[index] = fallbackToRegex(name);
+            result.fromFallback++;
+            return;
+        }
+
+        try {
+            const userPrompt = JSON.stringify([name]);
+            let timerId: ReturnType<typeof setTimeout>;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+                timerId = setTimeout(() => reject(new Error('Gemini timeout')), timeoutMs);
+            });
+
+            let aiResponse;
+            try {
+                aiResponse = await Promise.race([
+                    model.generateContent(userPrompt),
+                    timeoutPromise,
+                ]);
+            } finally {
+                clearTimeout(timerId!);
+            }
+
+            const text = aiResponse.response.text();
+            const parsed = JSON.parse(text);
+            const aiResult = Array.isArray(parsed) ? parsed[0] : parsed;
+
+            if (!aiResult || aiResult.confidence < CONFIDENCE_THRESHOLD) {
+                orderedResults[index] = fallbackToRegex(name);
+                result.fromFallback++;
+            } else {
+                const lineId = computeLineId(aiResult.brand, aiResult.product_line, aiResult.generation);
+                orderedResults[index] = {
+                    originalName: name,
+                    normalized: aiResult,
+                    lineId,
+                    source: 'ai',
+                };
+                result.fromAI++;
+            }
+        } catch {
+            orderedResults[index] = fallbackToRegex(name);
+            result.fromFallback++;
+        }
+    }
+
+    // Process with concurrency limit using semaphore pool pattern
+    const pool: Promise<void>[] = [];
+    const executing = new Set<Promise<void>>();
+
+    for (let i = 0; i < productNames.length; i++) {
+        // Check budget before scheduling new work
+        if (Date.now() - startTime > timeBudgetMs) {
+            for (let k = i; k < productNames.length; k++) {
+                orderedResults[k] = fallbackToRegex(productNames[k]);
+                result.fromFallback++;
+            }
+            break;
+        }
+
+        const p = processOne(i).then(() => { executing.delete(p); });
+        executing.add(p);
+        pool.push(p);
+
+        if (executing.size >= concurrency) {
+            await Promise.race(executing);
+        }
+    }
+
+    await Promise.all(pool);
+
+    result.results = orderedResults.filter(Boolean);
+    return result;
 }
 
 /**
@@ -197,119 +298,39 @@ export async function normalizeProducts(
         },
     });
 
-    // Step 4: Process in batches (startTime은 함수 시작 시점 기준)
-    for (let i = 0; i < namesToProcess.length; i += BATCH_SIZE) {
-        // 전체 시간 예산 초과 시 나머지 전부 regex fallback
-        if (Date.now() - startTime > GLOBAL_TIME_BUDGET_MS) {
-            console.warn(`[Normalizer] Time budget exceeded (${GLOBAL_TIME_BUDGET_MS}ms). Falling back to regex for remaining ${namesToProcess.length - i} products.`);
-            for (let k = i; k < namesToProcess.length; k++) {
-                response.results.push(fallbackToRegex(namesToProcess[k]));
-                response.fromFallback++;
-            }
-            break;
-        }
+    // Step 4: Process individually in parallel (concurrent, not sequential batches)
+    const remainingBudgetMs = Math.max(0, GLOBAL_TIME_BUDGET_MS - (Date.now() - startTime));
+    const concurrent = await normalizeProductsConcurrent(
+        namesToProcess,
+        model as { generateContent: (prompt: string) => Promise<{ response: { text: () => string } }> },
+        { concurrency: CONCURRENCY_LIMIT, timeoutMs: GEMINI_CALL_TIMEOUT_MS, timeBudgetMs: remainingBudgetMs },
+    );
 
-        const batch = namesToProcess.slice(i, i + BATCH_SIZE);
-        let batchProcessed = false;
+    response.results.push(...concurrent.results);
+    response.fromAI += concurrent.fromAI;
+    response.fromFallback += concurrent.fromFallback;
+    response.errors.push(...concurrent.errors);
 
-        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                const userPrompt = JSON.stringify(batch);
-                let timerId: ReturnType<typeof setTimeout>;
-                const timeoutPromise = new Promise<never>((_, reject) => {
-                    timerId = setTimeout(() => reject(new Error('Gemini timeout')), GEMINI_CALL_TIMEOUT_MS);
+    // Save AI results to cache (fire-and-forget)
+    if (supabaseUrl && serviceKey) {
+        const supabase = createClient(supabaseUrl, serviceKey);
+        for (const r of concurrent.results) {
+            if (r.source === 'ai') {
+                computeProductHash(r.originalName).then(hash => {
+                    supabase.from('normalized_products').upsert({
+                        product_name_hash: hash,
+                        original_name: r.originalName,
+                        brand: r.normalized.brand,
+                        product_line: r.normalized.product_line,
+                        generation: r.normalized.generation,
+                        year: r.normalized.year,
+                        trend_keywords: r.normalized.trend_keywords,
+                        category: r.normalized.category,
+                        confidence: r.normalized.confidence,
+                        line_id: r.lineId,
+                        updated_at: new Date().toISOString(),
+                    }).then(() => {}, () => {});
                 });
-                let result;
-                try {
-                    result = await Promise.race([
-                        model.generateContent(userPrompt),
-                        timeoutPromise,
-                    ]);
-                } finally {
-                    clearTimeout(timerId!);
-                }
-                const text = result.response.text();
-
-                let parsed: NormalizedProduct[];
-                try {
-                    parsed = JSON.parse(text);
-                } catch {
-                    throw new Error(`Invalid JSON from Gemini: ${text.slice(0, 200)}`);
-                }
-
-                if (!Array.isArray(parsed) || parsed.length !== batch.length) {
-                    throw new Error(
-                        `Array length mismatch: expected ${batch.length}, got ${Array.isArray(parsed) ? parsed.length : 'non-array'}`,
-                    );
-                }
-
-                // Process each result
-                const supabase =
-                    supabaseUrl && serviceKey ? createClient(supabaseUrl, serviceKey) : null;
-
-                for (let j = 0; j < batch.length; j++) {
-                    const originalName = batch[j];
-                    const aiResult = parsed[j];
-
-                    let normResult: NormalizationResult;
-
-                    if (!aiResult || aiResult.confidence < CONFIDENCE_THRESHOLD) {
-                        // Low confidence: use regex fallback
-                        normResult = fallbackToRegex(originalName);
-                        response.fromFallback++;
-                    } else {
-                        const lineId = computeLineId(aiResult.brand, aiResult.product_line, aiResult.generation);
-                        normResult = {
-                            originalName,
-                            normalized: aiResult,
-                            lineId,
-                            source: 'ai',
-                        };
-                        response.fromAI++;
-
-                        // Save to cache (fire-and-forget)
-                        if (supabase) {
-                            computeProductHash(originalName).then(hash => {
-                                supabase
-                                    .from('normalized_products')
-                                    .upsert({
-                                        product_name_hash: hash,
-                                        original_name: originalName,
-                                        brand: aiResult.brand,
-                                        product_line: aiResult.product_line,
-                                        generation: aiResult.generation,
-                                        year: aiResult.year,
-                                        trend_keywords: aiResult.trend_keywords,
-                                        category: aiResult.category,
-                                        confidence: aiResult.confidence,
-                                        line_id: lineId,
-                                        updated_at: new Date().toISOString(),
-                                    })
-                                    .then(() => {}, () => {});
-                            });
-                        }
-                    }
-
-                    response.results.push(normResult);
-                }
-
-                batchProcessed = true;
-                break;
-            } catch (err) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                if (attempt < MAX_RETRIES) {
-                    await sleep(RETRY_DELAY_MS);
-                } else {
-                    response.errors.push(`Batch ${i / BATCH_SIZE + 1} failed after ${MAX_RETRIES + 1} attempts: ${errMsg}`);
-                }
-            }
-        }
-
-        // If all retries failed, use regex fallback for entire batch
-        if (!batchProcessed) {
-            for (const name of batch) {
-                response.results.push(fallbackToRegex(name));
-                response.fromFallback++;
             }
         }
     }

@@ -11,12 +11,13 @@ interface LinePattern {
     genRegex?: RegExp;     // 세대 추출 (e.g., /갤럭시\s*북\s*(\d)/i → "4")
     chipRegex?: RegExp;    // 칩셋 추출 (e.g., /M(\d)/i → "M4") - Apple용
     subLines?: Array<{ name: string; keyword: string; regex: RegExp }>;
+    category?: string;
 }
 
 interface BrandLineConfig {
     brand: string;
     lines: LinePattern[];
-    fallback: { lineId: string; baseName: string; baseKeyword: string };
+    fallback: { lineId: string; baseName: string; baseKeyword: string; category?: string };
 }
 
 const BRAND_LINE_CONFIGS: BrandLineConfig[] = [
@@ -37,8 +38,37 @@ const BRAND_LINE_CONFIGS: BrandLineConfig[] = [
                 regex: /맥북\s*에어|MacBook\s*Air/i,
                 chipRegex: /M(\d)/i,
             },
+            {
+                lineId: 'apple-macmini',
+                baseName: 'Mac mini',
+                baseKeyword: '맥미니',
+                regex: /맥\s*미니|Mac\s*mini/i,
+                chipRegex: /M(\d)/i,
+                category: '데스크탑',
+            },
+            {
+                lineId: 'apple-macstudio',
+                baseName: 'Mac Studio',
+                baseKeyword: '맥스튜디오',
+                regex: /맥\s*스튜디오|Mac\s*Studio/i,
+                chipRegex: /M(\d)/i,
+                category: '데스크탑',
+            },
+            {
+                lineId: 'apple-ipad',
+                baseName: 'iPad',
+                baseKeyword: '아이패드',
+                regex: /아이패드|iPad/i,
+                chipRegex: /M(\d)/i,
+                category: '태블릿',
+                subLines: [
+                    { name: 'Pro', keyword: '프로', regex: /프로|Pro/i },
+                    { name: 'Air', keyword: '에어', regex: /에어|Air/i },
+                    { name: 'mini', keyword: '미니', regex: /미니|mini/i },
+                ],
+            },
         ],
-        fallback: { lineId: 'apple-macbook', baseName: 'MacBook', baseKeyword: '맥북' },
+        fallback: { lineId: 'apple', baseName: 'Apple', baseKeyword: 'Apple' },
     },
     {
         brand: '삼성전자',
@@ -133,7 +163,7 @@ const BRAND_LINE_CONFIGS: BrandLineConfig[] = [
 
 // 브랜드 감지용 패턴 (brandClassifier.ts와 동일 순서)
 const BRAND_DETECT_PATTERNS: Array<{ brand: string; regex: RegExp }> = [
-    { brand: 'Apple', regex: /맥북|MacBook|macbook|아이패드|iPad|Apple|애플/i },
+    { brand: 'Apple', regex: /맥북|MacBook|macbook|아이패드|iPad|Apple|애플|맥미니|Mac mini|맥스튜디오|Mac Studio/i },
     { brand: '삼성전자', regex: /삼성|Samsung|갤럭시북|Galaxy Book/i },
     { brand: 'LG전자', regex: /LG전자|LG 그램|LG gram|LG/i },
     { brand: 'HP', regex: /\bHP\b|엘리트북|EliteBook|스펙터|Spectre|파빌리온|Pavilion|OMEN|오멘/i },
@@ -216,7 +246,7 @@ export function classifyProductLine(productName: string): ProductLine {
                 displayName,
                 searchKeyword,
                 brand: config.brand,
-                category: '노트북',
+                category: line.category || '노트북',
                 generation: generation || undefined,
             };
         }
@@ -228,7 +258,7 @@ export function classifyProductLine(productName: string): ProductLine {
         displayName: config.fallback.baseName,
         searchKeyword: config.fallback.baseKeyword,
         brand: config.brand,
-        category: '노트북',
+        category: config.fallback.category || '노트북',
     };
 }
 

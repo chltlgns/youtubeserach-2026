@@ -35,6 +35,7 @@ export interface TrendScoreInput {
 export interface TrendFetchRequest {
     productLines: ProductLine[];
     forceRefresh?: boolean;
+    category?: string;
 }
 
 export interface TrendFetchResponse {

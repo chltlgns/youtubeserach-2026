@@ -7,6 +7,8 @@ import { fetchTrendData } from '@/lib/trendService';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { createClient } from '@supabase/supabase-js';
 
+export const maxDuration = 60;
+
 const MAX_PRODUCT_LINES = 50;
 
 export async function POST(request: NextRequest) {
@@ -80,7 +82,8 @@ export async function POST(request: NextRequest) {
             body.productLines,
             supabaseUrl,
             serviceRoleKey,
-            body.forceRefresh ?? false
+            body.forceRefresh ?? false,
+            body.category
         );
 
         console.log(`[API /trends] 결과: results=${results.length}, fromCache=${fromCache}, fetched=${fetched}, errors=${JSON.stringify(errors)}`);
