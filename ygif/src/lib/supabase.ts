@@ -54,6 +54,7 @@ export interface CoupangProductDB {
     created_at: string;
     video_completed_at: string | null; // 영상 제작 완료 시간 (패널티 시스템용)
     brand: string | null;
+    category: string;
 }
 
 export interface PriceHistoryDB {

@@ -20,6 +20,10 @@ type SortDirection = 'asc' | 'desc';
 
 const RESET_HOUR = 9; // 오전 9시 기준 리셋
 
+// 카테고리 목록
+const CATEGORIES = ['노트북', '핸드폰', '키보드', '마우스', '태블릿'] as const;
+type Category = typeof CATEGORIES[number];
+
 function safeNavigate(url: string): boolean {
     try {
         const parsed = new URL(url);
@@ -54,6 +58,8 @@ export default function CoupangPage() {
     const [lastTrendUpdate, setLastTrendUpdate] = useState<string | null>(null);
     const [normLineIdMap, setNormLineIdMap] = useState<Record<string, string>>({});
     const [workerCount, setWorkerCount] = useState<number>(2);
+    const [selectedCategory, setSelectedCategory] = useState<Category>('노트북');
+    const [updateProgressPercent, setUpdateProgressPercent] = useState<number>(0);
 
     // 병렬 워커 파라미터 읽기
     const [workerIndex, setWorkerIndex] = useState(-1);
@@ -142,6 +148,7 @@ export default function CoupangPage() {
                 lastUpdated: p.last_updated,
                 videoCompletedAt: p.video_completed_at ?? null,
                 brand: p.brand ?? classifyBrand(p.product_name),
+                category: p.category ?? '노트북',
             }));
 
             // Auto-classify brands for products without brand
@@ -175,6 +182,8 @@ export default function CoupangPage() {
         const completeCount = sessionStorage.getItem('coupang_update_complete');
         if (completeCount) {
             sessionStorage.removeItem('coupang_update_complete');
+            setUpdateProgressPercent(100);
+            setIsUpdating(false);
             const params = new URLSearchParams(window.location.search);
             const w = params.get('worker');
             setTimeout(() => {
@@ -377,6 +386,7 @@ export default function CoupangPage() {
         if (isTokenRefresh) {
             console.log(`${label}[YGIF] 토큰 갱신 후 복귀 - 같은 제품 재시도: ${currentIndex + 1}/${urls.length}`);
             setUpdateProgress(`${label}토큰 갱신 후 재시도: ${currentIndex + 1}/${urls.length}`);
+            setUpdateProgressPercent(Math.round((currentIndex / urls.length) * 100));
             setIsUpdating(true);
             // 7초 대기: Supabase JS 초기화(~2s) + autoRefreshToken 네트워크(~2s)
             //          + TOKEN_REFRESHED → syncTokenFromLocalStorage → GM_setValue(~0.5s) + 여유(~2.5s)
@@ -389,6 +399,11 @@ export default function CoupangPage() {
 
         console.log(`${label}[YGIF] 뒤로 가기 감지 - 인덱스: ${currentIndex}, 전체: ${urls.length}`);
 
+        // 프로그레스 퍼센트 업데이트
+        const completedCount = currentIndex + 1;
+        const percent = Math.round((completedCount / urls.length) * 100);
+        setUpdateProgressPercent(percent);
+
         const nextIndex = currentIndex + 1;
 
         if (nextIndex >= urls.length) {
@@ -397,6 +412,7 @@ export default function CoupangPage() {
             sessionStorage.removeItem(processingKey);
             sessionStorage.removeItem('coupang_update_in_progress');
             sessionStorage.setItem('coupang_update_complete', urls.length.toString());
+            setUpdateProgressPercent(100);
 
             console.log(`${label}[YGIF] 모든 업데이트 완료! 페이지 새로고침...`);
             window.location.reload();
@@ -408,6 +424,9 @@ export default function CoupangPage() {
             // 쿨다운: 5개마다 60~180초 대기
             const COOLDOWN_EVERY = 5;
             const isCooldown = (nextIndex % COOLDOWN_EVERY === 0) && nextIndex > 0;
+
+            const nextPercent = Math.round((nextIndex / urls.length) * 100);
+            setUpdateProgressPercent(nextPercent);
 
             let delay: number;
             if (isCooldown) {
@@ -590,8 +609,11 @@ export default function CoupangPage() {
         }
     };
 
+    // 카테고리 필터링
+    const filteredByCategory = products.filter(p => (p.category ?? '노트북') === selectedCategory);
+
     // Sorted products - 정렬이 없으면 원래 순서(생성일 내림차순) 유지
-    const sortedProducts = sortField === null ? products : [...products].sort((a, b) => {
+    const sortedProducts = sortField === null ? filteredByCategory : [...filteredByCategory].sort((a, b) => {
         let aVal: number | string | null | undefined;
         let bVal: number | string | null | undefined;
 
@@ -876,6 +898,7 @@ export default function CoupangPage() {
         const label = `[워커${workerIndex}] `;
         console.log(`${label}[YGIF] 업데이트 시작, URL 개수: ${urls.length}`);
         setUpdateProgress(`${label}업데이트 중: 1/${urls.length}`);
+        setUpdateProgressPercent(0);
         setIsUpdating(true);
 
         safeNavigate(urls[0]);
@@ -1083,11 +1106,6 @@ export default function CoupangPage() {
                             {lastTrendUpdate && ` | 트렌드: ${lastTrendUpdate}`}
                         </div>
                         <div className="flex gap-2 items-center">
-                            {updateProgress && (
-                                <span className="text-sm text-yellow-400 animate-pulse">
-                                    {updateProgress}
-                                </span>
-                            )}
                             <button
                                 onClick={() => fetchTrendData(true)}
                                 disabled={products.length === 0 || isTrendLoading}
@@ -1141,6 +1159,47 @@ export default function CoupangPage() {
                                 전체 초기화
                             </button>
                         </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    {isUpdating && updateProgress && (
+                        <div className="mb-4">
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-sm text-yellow-400">{updateProgress}</span>
+                                <span className="text-sm font-bold text-yellow-300">{updateProgressPercent}%</span>
+                            </div>
+                            <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                                <div
+                                    className="h-full rounded-full transition-all duration-500 ease-out"
+                                    style={{
+                                        width: `${updateProgressPercent}%`,
+                                        background: updateProgressPercent >= 100
+                                            ? 'linear-gradient(90deg, #22c55e, #4ade80)'
+                                            : 'linear-gradient(90deg, #a855f7, #3b82f6)',
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Category Tabs */}
+                    <div className="flex gap-2 mb-4">
+                        {CATEGORIES.map((cat) => {
+                            const count = products.filter(p => (p.category ?? '노트북') === cat).length;
+                            return (
+                                <button
+                                    key={cat}
+                                    onClick={() => setSelectedCategory(cat)}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                        selectedCategory === cat
+                                            ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                                            : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
+                                    }`}
+                                >
+                                    {cat} ({count})
+                                </button>
+                            );
+                        })}
                     </div>
 
                     {/* Product Table */}

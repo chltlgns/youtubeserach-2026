@@ -16,6 +16,7 @@ export interface CoupangProduct {
     dateAdded?: string;            // 추가된 날짜 (ISO string)
     videoCompletedAt?: string | null; // 영상 생성 완료일
     brand?: string;                // 브랜드 (자동 분류)
+    category?: string;             // 카테고리 (노트북, 핸드폰, 키보드, 마우스, 태블릿)
 }
 
 export interface CoupangState {
