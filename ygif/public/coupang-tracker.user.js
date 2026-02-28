@@ -20,6 +20,135 @@
 (function () {
     'use strict';
 
+    // ========== 봇 탐지 회피 유틸리티 ==========
+    function randomBetween(min, max) {
+        return min + Math.floor(Math.random() * (max - min + 1));
+    }
+
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // 스크롤 시뮬레이션 (2~4회, 랜덤 거리)
+    async function simulateHumanScroll() {
+        const scrollCount = randomBetween(2, 4);
+        for (let i = 0; i < scrollCount; i++) {
+            window.scrollBy({ top: randomBetween(100, 500), behavior: 'smooth' });
+            await sleep(randomBetween(300, 1200));
+        }
+        // 30% 확률로 위로 스크롤
+        if (Math.random() < 0.3) {
+            window.scrollBy({ top: -randomBetween(50, 200), behavior: 'smooth' });
+            await sleep(randomBetween(200, 800));
+        }
+    }
+
+    // 마우스 이동 시뮬레이션 (2~3회)
+    async function simulateMouseMovement() {
+        const moveCount = randomBetween(2, 3);
+        for (let i = 0; i < moveCount; i++) {
+            document.dispatchEvent(new MouseEvent('mousemove', {
+                clientX: randomBetween(100, window.innerWidth - 100),
+                clientY: randomBetween(100, window.innerHeight - 100),
+                bubbles: true
+            }));
+            await sleep(randomBetween(200, 600));
+        }
+    }
+    // 이미지 상호작용 시뮬레이션
+    async function simulateImageInteraction() {
+        const img = document.querySelector('.prod-image img') || document.querySelector('.prod-image__item img');
+        if (img) {
+            img.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await sleep(randomBetween(300, 800));
+        }
+    }
+
+    // 리뷰 섹션까지 스크롤
+    async function simulateScrollToReviews() {
+        const reviewSection = document.querySelector('.js-reviewArticleListContainer') || document.querySelector('#btfTab');
+        if (reviewSection) {
+            reviewSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            await sleep(randomBetween(500, 1500));
+        }
+    }
+
+    // 탭 클릭 시뮬레이션
+    async function simulateTabClick() {
+        const tabs = document.querySelectorAll('.tab-titles .tab-title');
+        if (tabs.length > 0) {
+            const randomTab = tabs[Math.floor(Math.random() * tabs.length)];
+            randomTab.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await sleep(randomBetween(300, 1000));
+        }
+    }
+
+    // ========== 행동 패턴 정의 ==========
+    const behaviorPatterns = [
+        {
+            name: 'A: 빠른 확인',
+            weight: 30,
+            execute: async function () {
+                await sleep(randomBetween(1000, 2500));
+                await simulateHumanScroll();
+                await simulateMouseMovement();
+            },
+            stayTime: function () { return randomBetween(2000, 5000); }
+        },
+        {
+            name: 'B: 꼼꼼히 보기',
+            weight: 25,
+            execute: async function () {
+                await sleep(randomBetween(2000, 4000));
+                await simulateHumanScroll();
+                await simulateImageInteraction();
+                await simulateTabClick();
+                await simulateHumanScroll();
+                await simulateMouseMovement();
+            },
+            stayTime: function () { return randomBetween(6000, 15000); }
+        },
+        {
+            name: 'C: 비교 쇼핑',
+            weight: 30,
+            execute: async function () {
+                await sleep(randomBetween(1500, 3000));
+                await simulateHumanScroll();
+                await simulateScrollToReviews();
+                await simulateMouseMovement();
+                if (Math.random() < 0.4) {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    await sleep(randomBetween(500, 1500));
+                }
+            },
+            stayTime: function () { return randomBetween(4000, 10000); }
+        },
+        {
+            name: 'D: 우연히 방문',
+            weight: 15,
+            execute: async function () {
+                await sleep(randomBetween(500, 1500));
+                if (Math.random() < 0.5) {
+                    window.scrollBy({ top: randomBetween(50, 200), behavior: 'smooth' });
+                    await sleep(randomBetween(200, 600));
+                }
+            },
+            stayTime: function () { return randomBetween(1000, 3000); }
+        }
+    ];
+
+    function selectBehaviorPattern() {
+        const totalWeight = behaviorPatterns.reduce((sum, p) => sum + p.weight, 0);
+        let rand = Math.random() * totalWeight;
+        for (const pattern of behaviorPatterns) {
+            rand -= pattern.weight;
+            if (rand <= 0) return { name: pattern.name, pattern };
+        }
+        return { name: behaviorPatterns[0].name, pattern: behaviorPatterns[0] };
+    }
+    // ==============================================
+
+    let lastPatternStayTime = null;
     console.log('[Coupang Tracker] 스크립트 시작!');
 
     // ========== Supabase 설정 ==========
@@ -104,12 +233,14 @@
 
     // 뒤로 가기로 YGIF로 돌아가기 (저장 완료 후)
     function goBackToYGIF() {
-        console.log('[Coupang Tracker] 데이터 저장 완료, 뒤로 가기로 YGIF로 돌아갑니다...');
+        const stayTime = lastPatternStayTime || randomBetween(3000, 8000);
+        lastPatternStayTime = null;
+        console.log(`[Coupang Tracker] 데이터 저장 완료, ${(stayTime/1000).toFixed(1)}초 후 돌아갑니다...`);
 
         setTimeout(() => {
             // 브라우저 뒤로 가기
             window.history.back();
-        }, 2000);
+        }, stayTime);
     }
 
     // 가격 히스토리 저장 (하루에 한 번만) - 콜백 추가
@@ -671,21 +802,20 @@
         }
     }
 
-    // 메인
-    function main() {
-        // YGIF 페이지인 경우
-        if (isYGIFPage()) {
-            setupYGIFIntegration();
-            return;
-        }
-
-        // 쿠팡 제품 페이지인 경우
-        if (!isProductPage()) {
-            console.log('[Coupang Tracker] 제품 페이지가 아님');
-            return;
-        }
-
+    // 쿠팡 제품 페이지 처리 (인간 행동 시뮬레이션 포함)
+    async function handleProductPage() {
         console.log('[Coupang Tracker] 제품 페이지 감지!');
+
+        // 인간 행동 시뮬레이션 (데이터 추출 전) - 랜덤 패턴 적용
+        try {
+            const { name, pattern } = selectBehaviorPattern();
+            console.log(`[Coupang Tracker] 행동 패턴: ${name}`);
+            await pattern.execute();
+            lastPatternStayTime = pattern.stayTime();
+        } catch (e) {
+            console.log('[Coupang Tracker] 시뮬레이션 에러 (무시):', e);
+        }
+
         const productData = extractProductData();
         console.log('[Coupang Tracker] 추출 데이터:', productData);
 
@@ -712,10 +842,27 @@
         }
     }
 
+    // 메인
+    function main() {
+        // YGIF 페이지인 경우
+        if (isYGIFPage()) {
+            setupYGIFIntegration();
+            return;
+        }
+
+        // 쿠팡 제품 페이지인 경우
+        if (!isProductPage()) {
+            console.log('[Coupang Tracker] 제품 페이지가 아님');
+            return;
+        }
+
+        handleProductPage(); // async 함수 호출
+    }
+
     // YGIF 페이지는 즉시 실행 (토큰 동기화 우선), 쿠팡은 DOM 로딩 대기
     if (isYGIFPage()) {
         main();
     } else {
-        setTimeout(main, 3000);
+        setTimeout(main, randomBetween(3000, 5000)); // 3~5초 랜덤
     }
 })();

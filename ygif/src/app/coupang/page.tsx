@@ -53,6 +53,7 @@ export default function CoupangPage() {
     const [isTrendLoading, setIsTrendLoading] = useState(false);
     const [lastTrendUpdate, setLastTrendUpdate] = useState<string | null>(null);
     const [normLineIdMap, setNormLineIdMap] = useState<Record<string, string>>({});
+    const [workerCount, setWorkerCount] = useState<number>(2);
 
     // 병렬 워커 파라미터 읽기
     const [workerIndex, setWorkerIndex] = useState(-1);
@@ -187,6 +188,43 @@ export default function CoupangPage() {
         }
     }, [loadProducts]);
 
+    // 페이지 로드 시 캐시된 트렌드 데이터 자동 복원
+    useEffect(() => {
+        if (products.length === 0 || Object.keys(trendData).length > 0) return;
+
+        const loadCachedTrends = async () => {
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session?.access_token) return;
+
+                const productNames = products.map(p => p.productName);
+                const res = await fetch('/api/trends/load', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session.access_token}`,
+                    },
+                    body: JSON.stringify({ productNames }),
+                });
+
+                if (!res.ok) return;
+
+                const data = await res.json();
+                if (data.trendData && Object.keys(data.trendData).length > 0) {
+                    setTrendData(data.trendData);
+                    setNormLineIdMap(data.normLineIdMap || {});
+                    if (data.lastUpdated) {
+                        setLastTrendUpdate(new Date(data.lastUpdated).toLocaleString('ko-KR'));
+                    }
+                }
+            } catch {
+                // 캐시 로드 실패는 무시 (사용자가 수동으로 트렌드 갱신 가능)
+            }
+        };
+
+        loadCachedTrends();
+    }, [products, trendData]);
+
     // 병렬 워커 자동 시작 (autostart=1 파라미터)
     useEffect(() => {
         if (!autostart || !isParallelMode || products.length === 0 || isUpdating) return;
@@ -207,9 +245,10 @@ export default function CoupangPage() {
 
         console.log(`[워커${workerIndex}][YGIF] 자동 시작, ${urls.length}개 제품`);
 
+        const startDelay = 2000 + Math.floor(Math.random() * 3000); // 2~5초
         setTimeout(() => {
             safeNavigate(urls[0]);
-        }, 1000);
+        }, startDelay);
     }, [autostart, isParallelMode, products, workerIndex, totalWorkers, isUpdating]);
 
     // Calculate product scores
@@ -364,13 +403,27 @@ export default function CoupangPage() {
         } else {
             console.log(`${label}[YGIF] 다음 제품으로 이동: ${nextIndex + 1}/${urls.length}`);
             sessionStorage.setItem('coupang_update_index', nextIndex.toString());
-            setUpdateProgress(`${label}업데이트 중: ${nextIndex + 1}/${urls.length}`);
             setIsUpdating(true);
+
+            // 쿨다운: 5개마다 60~180초 대기
+            const COOLDOWN_EVERY = 5;
+            const isCooldown = (nextIndex % COOLDOWN_EVERY === 0) && nextIndex > 0;
+
+            let delay: number;
+            if (isCooldown) {
+                delay = 90000 + Math.floor(Math.random() * 150000); // 90~240초
+                console.log(`${label}[YGIF] 쿨다운: ${Math.ceil(delay/1000)}초 (${nextIndex}개 완료)`);
+                setUpdateProgress(`${label}쿨다운 중... ${nextIndex}/${urls.length} (${Math.ceil(delay/1000)}초)`);
+            } else {
+                delay = 12000 + Math.floor(Math.random() * 18000); // 12~30초
+                console.log(`${label}[YGIF] 다음 제품까지 ${(delay/1000).toFixed(1)}초 대기`);
+                setUpdateProgress(`${label}대기 중: ${nextIndex + 1}/${urls.length} (${Math.ceil(delay/1000)}초)`);
+            }
 
             setTimeout(() => {
                 sessionStorage.removeItem(processingKey);
                 safeNavigate(urls[nextIndex]);
-            }, 1500);
+            }, delay);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -772,7 +825,7 @@ export default function CoupangPage() {
 
         // 메인 창: 워커 창 열기 (confirm 없이 즉시 - 팝업 차단 방지)
         if (!isParallelMode) {
-            const WORKER_COUNT = Math.min(3, products.length);
+            const WORKER_COUNT = Math.min(workerCount, products.length);
 
             const openedWindows: (Window | null)[] = [];
             for (let i = 0; i < WORKER_COUNT; i++) {
@@ -1048,18 +1101,30 @@ export default function CoupangPage() {
                                 )}
                                 {isTrendLoading ? '조회 중...' : '트렌드 갱신'}
                             </button>
-                            <button
-                                onClick={handleAutoUpdate}
-                                disabled={products.length === 0 || isUpdating}
-                                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                            >
-                                {isUpdating ? (
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                    <Zap className="w-4 h-4" />
-                                )}
-                                {isUpdating ? '업데이트 중...' : '전체 업데이트'}
-                            </button>
+                            <div className="flex items-center gap-1">
+                                <select
+                                    value={workerCount}
+                                    onChange={(e) => setWorkerCount(parseInt(e.target.value))}
+                                    className="px-2 py-2 bg-gray-700 border border-gray-600 rounded-l-lg text-sm text-white"
+                                    title="워커 수 - 많을수록 빠르지만 봇 탐지 위험 증가"
+                                >
+                                    <option value={1}>1창 (안전)</option>
+                                    <option value={2}>2창 (권장)</option>
+                                    <option value={3}>3창 (빠름)</option>
+                                </select>
+                                <button
+                                    onClick={handleAutoUpdate}
+                                    disabled={products.length === 0 || isUpdating}
+                                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 rounded-r-lg text-sm font-medium transition-colors disabled:opacity-50"
+                                >
+                                    {isUpdating ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        <Zap className="w-4 h-4" />
+                                    )}
+                                    {isUpdating ? '업데이트 중...' : '전체 업데이트'}
+                                </button>
+                            </div>
                             <button
                                 onClick={handleExportCSV}
                                 disabled={products.length === 0}
