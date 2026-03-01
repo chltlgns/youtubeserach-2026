@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         Coupang Price Tracker (Auto-Save)
+// @name         Price Tracker (Coupang + 11st)
 // @namespace    http://tampermonkey.net/
-// @version      2.8
-// @description  쿠팡 제품 페이지 방문 시 가격 데이터를 Supabase에 자동 저장 (순차 업데이트 지원)
+// @version      3.1
+// @description  쿠팡/11번가 제품 페이지 방문 시 가격 데이터를 Supabase에 자동 저장 (순차 업데이트 지원)
 // @author       YGIF
 // @match        *://*.coupang.com/*
+// @match        *://*.11st.co.kr/*
 // @match        http://localhost:3000/*
 // @match        http://127.0.0.1:3000/*
 // @match        https://ygif-pied.vercel.app/*
@@ -149,7 +150,7 @@
     // ==============================================
 
     let lastPatternStayTime = null;
-    console.log('[Coupang Tracker] 스크립트 시작!');
+    console.log('[Price Tracker] 스크립트 시작!');
 
     // ========== Supabase 설정 ==========
     const SUPABASE_URL = 'https://rmbowbqxdryndsekobmh.supabase.co';
@@ -195,11 +196,11 @@
 
             // 5분(300초) 전에 미리 갱신
             const expiresIn = exp - now;
-            console.log(`[Coupang Tracker] 토큰 만료까지: ${expiresIn}초 (${Math.floor(expiresIn / 60)}분)`);
+            console.log(`[Price Tracker] 토큰 만료까지: ${expiresIn}초 (${Math.floor(expiresIn / 60)}분)`);
 
             return expiresIn < 300; // 5분 미만이면 갱신 필요
         } catch (e) {
-            console.log('[Coupang Tracker] 토큰 파싱 에러:', e);
+            console.log('[Price Tracker] 토큰 파싱 에러:', e);
             return true;
         }
     }
@@ -219,7 +220,7 @@
                 };
             }
         } catch (e) {
-            console.log('[Coupang Tracker] 큐 체크 에러:', e);
+            console.log('[Price Tracker] 큐 체크 에러:', e);
         }
         return { hasQueue: false };
     }
@@ -228,14 +229,14 @@
     function setUpdateQueue(urls) {
         GM_setValue('coupang_update_queue', urls);
         GM_setValue('coupang_update_index', 0);
-        console.log('[Coupang Tracker] 큐 설정됨:', urls.length, '개');
+        console.log('[Price Tracker] 큐 설정됨:', urls.length, '개');
     }
 
     // 뒤로 가기로 YGIF로 돌아가기 (저장 완료 후)
     function goBackToYGIF() {
         const stayTime = lastPatternStayTime || randomBetween(3000, 8000);
         lastPatternStayTime = null;
-        console.log(`[Coupang Tracker] 데이터 저장 완료, ${(stayTime/1000).toFixed(1)}초 후 돌아갑니다...`);
+        console.log(`[Price Tracker] 데이터 저장 완료, ${(stayTime/1000).toFixed(1)}초 후 돌아갑니다...`);
 
         setTimeout(() => {
             // 브라우저 뒤로 가기
@@ -247,7 +248,7 @@
     function savePriceHistory(productId, price, accessToken, callback) {
         const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
 
-        console.log('[Coupang Tracker] 가격 히스토리 저장 시작...', { productId, price, today });
+        console.log('[Price Tracker] 가격 히스토리 저장 시작...', { productId, price, today });
 
         // 오늘 날짜에 이미 기록이 있는지 확인
         GM_xmlhttpRequest({
@@ -259,18 +260,18 @@
                 'Content-Type': 'application/json'
             },
             onload: function (response) {
-                console.log('[Coupang Tracker] 가격 히스토리 조회 응답:', response.status, response.responseText);
+                console.log('[Price Tracker] 가격 히스토리 조회 응답:', response.status, response.responseText);
 
                 let existing = [];
                 try {
                     existing = JSON.parse(response.responseText);
                 } catch (e) {
-                    console.log('[Coupang Tracker] 가격 히스토리 조회 파싱 에러:', e);
+                    console.log('[Price Tracker] 가격 히스토리 조회 파싱 에러:', e);
                 }
 
                 if (existing && existing.length > 0) {
                     // 오늘 이미 기록됨 - 가격 업데이트
-                    console.log('[Coupang Tracker] 오늘 가격 히스토리 이미 존재, 업데이트');
+                    console.log('[Price Tracker] 오늘 가격 히스토리 이미 존재, 업데이트');
                     GM_xmlhttpRequest({
                         method: 'PATCH',
                         url: `${SUPABASE_URL}/rest/v1/price_history?id=eq.${existing[0].id}`,
@@ -285,20 +286,20 @@
                         }),
                         onload: function (res) {
                             if (res.status >= 200 && res.status < 300) {
-                                console.log('[Coupang Tracker] ✅ 가격 히스토리 업데이트됨');
+                                console.log('[Price Tracker] ✅ 가격 히스토리 업데이트됨');
                             } else {
-                                console.log('[Coupang Tracker] ❌ 가격 히스토리 업데이트 실패:', res.responseText);
+                                console.log('[Price Tracker] ❌ 가격 히스토리 업데이트 실패:', res.responseText);
                             }
                             if (callback) callback();
                         },
                         onerror: function (err) {
-                            console.log('[Coupang Tracker] 가격 히스토리 업데이트 네트워크 에러:', err);
+                            console.log('[Price Tracker] 가격 히스토리 업데이트 네트워크 에러:', err);
                             if (callback) callback();
                         }
                     });
                 } else {
                     // 새로운 가격 히스토리 추가
-                    console.log('[Coupang Tracker] 새 가격 히스토리 저장 시도...');
+                    console.log('[Price Tracker] 새 가격 히스토리 저장 시도...');
                     GM_xmlhttpRequest({
                         method: 'POST',
                         url: `${SUPABASE_URL}/rest/v1/price_history`,
@@ -315,21 +316,21 @@
                         }),
                         onload: function (res) {
                             if (res.status >= 200 && res.status < 300) {
-                                console.log('[Coupang Tracker] ✅ 가격 히스토리 저장됨');
+                                console.log('[Price Tracker] ✅ 가격 히스토리 저장됨');
                             } else {
-                                console.log('[Coupang Tracker] ❌ 가격 히스토리 저장 실패:', res.status, res.responseText);
+                                console.log('[Price Tracker] ❌ 가격 히스토리 저장 실패:', res.status, res.responseText);
                             }
                             if (callback) callback();
                         },
                         onerror: function (err) {
-                            console.log('[Coupang Tracker] 가격 히스토리 저장 네트워크 에러:', err);
+                            console.log('[Price Tracker] 가격 히스토리 저장 네트워크 에러:', err);
                             if (callback) callback();
                         }
                     });
                 }
             },
             onerror: function (err) {
-                console.log('[Coupang Tracker] 가격 히스토리 확인 에러:', err);
+                console.log('[Price Tracker] 가격 히스토리 확인 에러:', err);
                 if (callback) callback();
             }
         });
@@ -337,7 +338,7 @@
 
     // 업데이트 중단하고 YGIF로 돌아가기 (에러 발생 시)
     function stopUpdateAndGoBack(errorMessage) {
-        console.log('[Coupang Tracker] 업데이트 중단:', errorMessage);
+        console.log('[Price Tracker] 업데이트 중단:', errorMessage);
 
         // 업데이트 큐 정리
         GM_setValue('coupang_update_queue', null);
@@ -363,7 +364,7 @@
         }
         GM_setValue('token_refresh_retries', retryCount + 1);
 
-        console.log(`[Coupang Tracker] 토큰 만료/무효 - YGIF로 이동하여 갱신 위임 (시도 ${retryCount + 1}/3)`);
+        console.log(`[Price Tracker] 토큰 만료/무효 - YGIF로 이동하여 갱신 위임 (시도 ${retryCount + 1}/3)`);
         const ygifUrl = GM_getValue('ygif_base_url', 'https://ygif-pied.vercel.app/coupang');
         showNotification('🔄 토큰 갱신', `YGIF로 이동하여 토큰을 갱신합니다... (${retryCount + 1}/3)`);
         setTimeout(() => {
@@ -379,10 +380,24 @@
     // 유저스크립트에서 직접 /auth/v1/token을 호출하면 Refresh Token Rotation으로 인한 race condition 발생
     // 대신 goToYGIFForTokenRefresh()로 YGIF에 위임
 
-    // 제품 페이지인지 확인
-    function isProductPage() {
-        return window.location.href.includes('/vp/products/') ||
-            window.location.href.includes('/products/');
+    // 쿠팡 제품 페이지인지 확인
+    function isCoupangProductPage() {
+        return window.location.hostname.includes('coupang.com') && (
+            window.location.href.includes('/vp/products/') ||
+            window.location.href.includes('/products/')
+        );
+    }
+
+    // 11번가 페이지인지 확인
+    function is11stPage() {
+        return window.location.hostname.includes('11st.co.kr');
+    }
+
+    function is11stProductPage() {
+        return is11stPage() && (
+            window.location.href.includes('/products/') ||
+            window.location.href.includes('/product/')
+        );
     }
 
     // 데이터 추출
@@ -426,7 +441,7 @@
                 rating = stars.length; // 채워진 별 개수
             }
         }
-        console.log('[Coupang Tracker] 추출된 별점:', rating);
+        console.log('[Price Tracker] 추출된 별점:', rating);
 
         // 리뷰 수 추출 (예: (538))
         let reviewCount = null;
@@ -439,7 +454,7 @@
                 reviewCount = parseInt(match[1].replace(/,/g, '')) || null;
             }
         }
-        console.log('[Coupang Tracker] 추출된 리뷰수:', reviewCount);
+        console.log('[Price Tracker] 추출된 리뷰수:', reviewCount);
 
         // 월간 구매수 추출 (예: "한 달간 100명 이상 구매했어요", "100+명이 구매했어요" 등)
         let monthlyPurchases = null;
@@ -481,7 +496,7 @@
             }
         }
 
-        console.log('[Coupang Tracker] 추출된 월간 구매수:', monthlyPurchases);
+        console.log('[Price Tracker] 추출된 월간 구매수:', monthlyPurchases);
 
         return {
             url: window.location.href.split('?')[0],
@@ -491,10 +506,136 @@
             discount_rate: discountRate,
             rating: rating,
             review_count: reviewCount,
-            monthly_purchases: monthlyPurchases
+            monthly_purchases: monthlyPurchases,
+            platform: 'coupang'
         };
     }
 
+
+    // 11번가 데이터 추출 (v3.1 - JS 번들 분석 기반 정확한 셀렉터)
+    // 11번가는 React SPA로, DOM 구조:
+    //   상품명: <div class="c_prd_name"><strong>{name}</strong></div>
+    //   가격:   <div class="c_prd_price"><dl>...<dd class="price"><strong><span class="value">{price}</span></strong></dd></dl></div>
+    //   원래가: <dd class="price_regular"><del>{price}</del>원</dd>
+    //   할인율: <dd class="rate"><span class="value">{rate}</span>%</dd>
+    //   별점:   <span class="c-starrate__gauge" style="width:{pct}%">만족도 {pct}%</span>
+    //   리뷰:   <dd class="c-starrate__review"><span>{count}</span></dd>
+    function extract11stProductData() {
+        // 상품명
+        const nameEl = document.querySelector('.c_prd_name strong') ||
+            document.querySelector('.c_prd_name') ||
+            document.querySelector('h1');
+        const productName = nameEl ? nameEl.textContent.trim() : document.title.replace(/\[11번가\]\s*/, '').split(' - ')[0].trim();
+
+        // 판매가 (최종 가격)
+        let currentPrice = 0;
+        const salePriceEl = document.querySelector('.c_prd_price .price .value') ||
+            document.querySelector('.c_prd_price dd.price .value') ||
+            document.querySelector('.b_product_info_price .price .value') ||
+            document.querySelector('.c_product_price_basic .price .value');
+        if (salePriceEl) {
+            currentPrice = parseInt(salePriceEl.textContent.replace(/[^0-9]/g, '')) || 0;
+        }
+        // 폴백: c_prd_price 안의 가격 .value만 검색 (할인율 .rate 제외)
+        if (currentPrice === 0) {
+            const valueEls = document.querySelectorAll('.c_prd_price .value');
+            for (const el of valueEls) {
+                if (el.closest('.rate') || el.closest('.price_regular')) continue;
+                const p = parseInt(el.textContent.replace(/[^0-9]/g, ''));
+                if (p > 100) {
+                    currentPrice = p;
+                    break;
+                }
+            }
+        }
+
+        // 원래가 (정가, 취소선 가격)
+        let originalPrice = currentPrice;
+        const origEl = document.querySelector('.c_prd_price .price_regular del') ||
+            document.querySelector('.c_prd_price .price_regular') ||
+            document.querySelector('.b_product_info_price .price_regular del');
+        if (origEl) {
+            const p = parseInt(origEl.textContent.replace(/[^0-9]/g, ''));
+            if (p > originalPrice) originalPrice = p;
+        }
+
+        // 할인율
+        let discountRate = '0%';
+        const rateEl = document.querySelector('.c_prd_price .rate .value') ||
+            document.querySelector('.c_prd_price dd.rate .value');
+        if (rateEl) {
+            const rate = parseInt(rateEl.textContent.replace(/[^0-9]/g, ''));
+            if (rate > 0) discountRate = rate + '%';
+        } else if (originalPrice > currentPrice && currentPrice > 0) {
+            discountRate = Math.round((1 - currentPrice / originalPrice) * 100) + '%';
+        }
+
+        // 별점 (c-starrate__gauge의 width% → 5점 만점 변환)
+        let rating = null;
+        const gaugeEl = document.querySelector('.c-starrate__gauge');
+        if (gaugeEl) {
+            // style.width에서 추출 (width: 85% → 4.3점)
+            const widthMatch = gaugeEl.style.width?.match(/(\d+)/);
+            if (widthMatch) {
+                rating = parseFloat((parseInt(widthMatch[1]) / 20).toFixed(1));
+            }
+            // 텍스트에서 추출 ("만족도 : 85%")
+            if (!rating) {
+                const textMatch = gaugeEl.textContent.match(/(\d+)/);
+                if (textMatch) {
+                    rating = parseFloat((parseInt(textMatch[1]) / 20).toFixed(1));
+                }
+            }
+        }
+
+        // 리뷰 수
+        let reviewCount = null;
+        const reviewEl = document.querySelector('.c-starrate__review');
+        if (reviewEl) {
+            const match = reviewEl.textContent.match(/(\d+(?:,\d+)*)/);
+            if (match) reviewCount = parseInt(match[1].replace(/,/g, '')) || null;
+        }
+
+        // 월간 구매수 (11번가에서 "N개 구매" 형태) - 리프 노드만 검색하여 오탐 방지
+        let monthlyPurchases = null;
+        const buyQtyEls = document.querySelectorAll('.b_product_info_cont span, .b_product_info_cont em, .b_product_info_cont strong, .c_prd_price span, .c_prd_price em');
+        for (const el of buyQtyEls) {
+            const text = el.textContent?.trim() || '';
+            if ((text.includes('구매') || text.includes('판매')) && text.length < 50 && el.children.length === 0) {
+                const match = text.match(/(\d+(?:,\d+)*)/);
+                if (match) {
+                    const num = parseInt(match[1].replace(/,/g, ''));
+                    if (num > 0 && num < 1000000) {
+                        monthlyPurchases = num;
+                        break;
+                    }
+                }
+            }
+        }
+
+        console.log('[Price Tracker] 11번가 추출 결과:', {
+            productName, currentPrice, originalPrice, discountRate, rating, reviewCount, monthlyPurchases
+        });
+
+        return {
+            url: window.location.href.split('?')[0],
+            product_name: productName,
+            current_price: currentPrice,
+            original_price: originalPrice,
+            discount_rate: discountRate,
+            rating: rating,
+            review_count: reviewCount,
+            monthly_purchases: monthlyPurchases,
+            platform: '11st'
+        };
+    }
+
+    // HTML 이스케이프 (XSS 방지)
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
 
     // 알림 표시
     function showNotification(title, text, isSuccess = true) {
@@ -522,8 +663,8 @@
             font-size: 14px !important;
         `;
         notification.innerHTML = `
-            <div style="font-weight: bold; margin-bottom: 4px;">${title}</div>
-            <div style="font-size: 12px; opacity: 0.9; white-space: pre-line;">${text}${queueInfo}</div>
+            <div style="font-weight: bold; margin-bottom: 4px;">${escapeHtml(title)}</div>
+            <div style="font-size: 12px; opacity: 0.9; white-space: pre-line;">${escapeHtml(text + queueInfo)}</div>
         `;
         document.body.appendChild(notification);
         setTimeout(() => notification.remove(), 5000);
@@ -556,7 +697,7 @@
             onload: function (response) {
                 // 401 에러 시 YGIF로 이동하여 토큰 갱신 (직접 refresh하지 않음)
                 if (response.status === 401) {
-                    console.log('[Coupang Tracker] 401 에러, YGIF로 이동하여 토큰 갱신');
+                    console.log('[Price Tracker] 401 에러, YGIF로 이동하여 토큰 갱신');
                     goToYGIFForTokenRefresh();
                     return;
                 }
@@ -594,7 +735,8 @@
                             rating: productData.rating,
                             review_count: productData.review_count,
                             monthly_purchases: productData.monthly_purchases,
-                            last_updated: new Date().toISOString()
+                            last_updated: new Date().toISOString(),
+                            platform: productData.platform || 'coupang'
                         }),
                         onload: function (res) {
                             if (res.status >= 200 && res.status < 300) {
@@ -635,7 +777,8 @@
                             rating: productData.rating,
                             review_count: productData.review_count,
                             monthly_purchases: productData.monthly_purchases,
-                            last_updated: new Date().toISOString()
+                            last_updated: new Date().toISOString(),
+                            platform: productData.platform || 'coupang'
                         }),
                         onload: function (res) {
                             if (res.status >= 200 && res.status < 300) {
@@ -653,7 +796,7 @@
                                         goBackToYGIF();
                                     }
                                 } catch (e) {
-                                    console.log('[Coupang Tracker] 새 제품 ID 파싱 에러:', e);
+                                    console.log('[Price Tracker] 새 제품 ID 파싱 에러:', e);
                                     goBackToYGIF();
                                 }
                             } else {
@@ -676,7 +819,7 @@
 
     // YGIF에서 순차 업데이트 시작 버튼 추가
     function setupYGIFIntegration() {
-        console.log('[Coupang Tracker] YGIF 페이지 감지, 통합 설정 중...');
+        console.log('[Price Tracker] YGIF 페이지 감지, 통합 설정 중...');
 
         // YGIF 기본 URL 저장 (쿠팡에서 토큰 갱신 시 돌아올 URL)
         GM_setValue('ygif_base_url', window.location.origin + '/coupang');
@@ -692,14 +835,14 @@
 
         // YGIF 앱의 TOKEN_REFRESHED 이벤트 감지 → 즉시 GM 동기화
         document.addEventListener('ygifTokenRefreshed', function () {
-            console.log('[Coupang Tracker] TOKEN_REFRESHED 이벤트 감지, 즉시 GM 동기화');
+            console.log('[Price Tracker] TOKEN_REFRESHED 이벤트 감지, 즉시 GM 동기화');
             syncTokenFromLocalStorage();
         });
 
         // localStorage 변경 감지 (다른 탭에서 토큰 갱신 시)
         window.addEventListener('storage', function (e) {
             if (e.key && ((e.key.includes('sb-') && e.key.includes('auth-token')) || e.key === 'ygif_token_refreshed_at')) {
-                console.log('[Coupang Tracker] localStorage 토큰 변경 감지:', e.key);
+                console.log('[Price Tracker] localStorage 토큰 변경 감지:', e.key);
                 syncTokenFromLocalStorage();
             }
         });
@@ -718,8 +861,8 @@
             GM_setValue('coupang_update_queue', urls);
             GM_setValue('coupang_update_index', 0);
 
-            console.log('[Coupang Tracker] 큐 설정됨:', urls.length, '개');
-            console.log('[Coupang Tracker] 첫 번째 제품으로 이동:', urls[0]);
+            console.log('[Price Tracker] 큐 설정됨:', urls.length, '개');
+            console.log('[Price Tracker] 첫 번째 제품으로 이동:', urls[0]);
 
             // 첫 번째 제품으로 이동
             window.location.href = urls[0];
@@ -739,7 +882,7 @@
             }, 500);
         }
 
-        console.log('[Coupang Tracker] YGIF 통합 완료 - CustomEvent "startCoupangUpdate" 대기 중');
+        console.log('[Price Tracker] YGIF 통합 완료 - CustomEvent "startCoupangUpdate" 대기 중');
     }
 
     // YGIF localStorage ↔ GM_setValue 양방향 토큰 동기화
@@ -751,19 +894,19 @@
                 const key = localStorage.key(i);
                 if (key && key.includes('sb-')) allKeys.push(key);
             }
-            console.log('[Coupang Tracker] localStorage sb- 키 목록:', allKeys);
+            console.log('[Price Tracker] localStorage sb- 키 목록:', allKeys);
 
             const supabaseKey = 'sb-rmbowbqxdryndsekobmh-auth-token';
             const tokenStr = localStorage.getItem(supabaseKey);
             const gmToken = GM_getValue('auth_token', null);
             const now = Math.floor(Date.now() / 1000);
 
-            console.log('[Coupang Tracker] 진단 - localStorage 토큰 존재:', !!tokenStr,
+            console.log('[Price Tracker] 진단 - localStorage 토큰 존재:', !!tokenStr,
                 '| GM 토큰 존재:', !!gmToken);
 
             if (tokenStr) {
                 const tokenData = JSON.parse(tokenStr);
-                console.log('[Coupang Tracker] 진단 - tokenData 키:', Object.keys(tokenData || {}));
+                console.log('[Price Tracker] 진단 - tokenData 키:', Object.keys(tokenData || {}));
 
                 if (tokenData && tokenData.access_token && tokenData.refresh_token) {
                     const lsExpiry = getTokenExpiry(tokenData);
@@ -776,8 +919,8 @@
                         tokenData.refresh_token = gmToken.refresh_token;
                         tokenData.expires_at = gmExpiry;
                         localStorage.setItem(supabaseKey, JSON.stringify(tokenData));
-                        console.log('[Coupang Tracker] ✅ GM 토큰이 더 최신 → localStorage 역동기화 완료!');
-                        console.log('[Coupang Tracker] 토큰 만료까지:', Math.floor((gmExpiry - now) / 60), '분');
+                        console.log('[Price Tracker] ✅ GM 토큰이 더 최신 → localStorage 역동기화 완료!');
+                        console.log('[Price Tracker] 토큰 만료까지:', Math.floor((gmExpiry - now) / 60), '분');
                     } else {
                         // localStorage 토큰이 더 최신 → GM으로 동기화
                         AUTH_TOKEN = {
@@ -786,56 +929,56 @@
                             user: tokenData.user
                         };
                         GM_setValue('auth_token', AUTH_TOKEN);
-                        console.log('[Coupang Tracker] ✅ localStorage → GM 토큰 동기화 완료!');
-                        console.log('[Coupang Tracker] 토큰 만료까지:', Math.floor((lsExpiry - now) / 60), '분');
+                        console.log('[Price Tracker] ✅ localStorage → GM 토큰 동기화 완료!');
+                        console.log('[Price Tracker] 토큰 만료까지:', Math.floor((lsExpiry - now) / 60), '분');
                     }
                 }
             } else if (gmToken) {
                 // localStorage 없지만 GM에 토큰 있음 → GM 사용
                 AUTH_TOKEN = gmToken;
-                console.log('[Coupang Tracker] localStorage 없음, GM 토큰 사용');
+                console.log('[Price Tracker] localStorage 없음, GM 토큰 사용');
             } else {
-                console.log('[Coupang Tracker] ⚠️ 토큰 없음 (localStorage, GM 모두)');
+                console.log('[Price Tracker] ⚠️ 토큰 없음 (localStorage, GM 모두)');
             }
         } catch (e) {
-            console.log('[Coupang Tracker] 토큰 동기화 에러:', e);
+            console.log('[Price Tracker] 토큰 동기화 에러:', e);
         }
     }
 
-    // 쿠팡 제품 페이지 처리 (인간 행동 시뮬레이션 포함)
+    // 제품 페이지 처리 (쿠팡 + 11번가 공통)
     async function handleProductPage() {
-        console.log('[Coupang Tracker] 제품 페이지 감지!');
+        const is11st = is11stPage();
+        console.log(`[Price Tracker] ${is11st ? '11번가' : '쿠팡'} 제품 페이지 감지!`);
 
-        // 인간 행동 시뮬레이션 (데이터 추출 전) - 랜덤 패턴 적용
-        try {
-            const { name, pattern } = selectBehaviorPattern();
-            console.log(`[Coupang Tracker] 행동 패턴: ${name}`);
-            await pattern.execute();
-            lastPatternStayTime = pattern.stayTime();
-        } catch (e) {
-            console.log('[Coupang Tracker] 시뮬레이션 에러 (무시):', e);
+        // 쿠팡에서만 인간 행동 시뮬레이션 (11번가는 불필요)
+        if (!is11st) {
+            try {
+                const { name, pattern } = selectBehaviorPattern();
+                console.log(`[Price Tracker] 행동 패턴: ${name}`);
+                await pattern.execute();
+                lastPatternStayTime = pattern.stayTime();
+            } catch (e) {
+                console.log('[Price Tracker] 시뮬레이션 에러 (무시):', e);
+            }
         }
 
-        const productData = extractProductData();
-        console.log('[Coupang Tracker] 추출 데이터:', productData);
+        const productData = is11st ? extract11stProductData() : extractProductData();
+        console.log('[Price Tracker] 추출 데이터:', productData);
 
         if (productData.current_price > 0) {
-            // 토큰 자체가 없으면 바로 YGIF로 돌려보내기
             if (!AUTH_TOKEN) {
-                console.log('[Coupang Tracker] ⚠️ 토큰 없음 - YGIF에서 로그인 필요');
+                console.log('[Price Tracker] ⚠️ 토큰 없음 - YGIF에서 로그인 필요');
                 stopUpdateAndGoBack('토큰 없음: YGIF 쿠팡 페이지에서 먼저 로그인해주세요');
                 return;
             }
-            // 토큰 만료 확인 후 필요시 갱신
             if (isTokenExpiredOrSoon()) {
-                console.log('[Coupang Tracker] 토큰 만료됨/곧 만료, YGIF로 이동하여 갱신');
+                console.log('[Price Tracker] 토큰 만료됨/곧 만료, YGIF로 이동하여 갱신');
                 goToYGIFForTokenRefresh();
             } else {
                 saveToSupabase(productData);
             }
         } else {
             showNotification('⚠️ 가격 없음', '가격 정보를 찾을 수 없습니다.\n5초 후 뒤로 돌아갑니다...', false);
-            // 가격 없어도 뒤로 가기
             setTimeout(() => {
                 window.history.back();
             }, 5000);
@@ -844,25 +987,46 @@
 
     // 메인
     function main() {
-        // YGIF 페이지인 경우
         if (isYGIFPage()) {
             setupYGIFIntegration();
             return;
         }
 
-        // 쿠팡 제품 페이지인 경우
-        if (!isProductPage()) {
-            console.log('[Coupang Tracker] 제품 페이지가 아님');
+        if (isCoupangProductPage() || is11stProductPage()) {
+            handleProductPage();
             return;
         }
 
-        handleProductPage(); // async 함수 호출
+        console.log('[Price Tracker] 제품 페이지가 아님');
     }
 
-    // YGIF 페이지는 즉시 실행 (토큰 동기화 우선), 쿠팡은 DOM 로딩 대기
+    // 11번가 SPA 렌더링 대기 (React가 DOM을 그릴 때까지 폴링, 최대 15초)
+    function waitFor11stRender(callback) {
+        const maxWait = 15000;
+        const startTime = Date.now();
+        const checkInterval = setInterval(() => {
+            const priceEl = document.querySelector('.c_prd_price .value') ||
+                document.querySelector('.c_prd_price .price .value') ||
+                document.querySelector('.c_prd_name');
+            if (priceEl || (Date.now() - startTime > maxWait)) {
+                clearInterval(checkInterval);
+                if (priceEl) {
+                    console.log('[Price Tracker] 11번가 SPA 렌더링 완료 감지!');
+                } else {
+                    console.log('[Price Tracker] 11번가 SPA 렌더링 대기 타임아웃 (15초)');
+                }
+                // 렌더링 직후 약간의 안정화 대기
+                setTimeout(callback, 500);
+            }
+        }, 500);
+    }
+
+    // YGIF 페이지는 즉시 실행, 11번가는 SPA 렌더링 대기 후, 쿠팡은 랜덤 대기
     if (isYGIFPage()) {
         main();
+    } else if (is11stPage()) {
+        waitFor11stRender(main);
     } else {
-        setTimeout(main, randomBetween(3000, 5000)); // 3~5초 랜덤
+        setTimeout(main, randomBetween(3000, 5000));
     }
 })();

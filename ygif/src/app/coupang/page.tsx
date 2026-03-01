@@ -17,6 +17,7 @@ import { NormalizationBatchResponse, NormalizationResult } from '@/lib/productNo
 // Sort types
 type SortField = 'productName' | 'currentPrice' | 'discountRate' | 'priceChangeRate' | 'rating' | 'reviewCount' | 'monthlyPurchases' | 'lastUpdated' | 'brand' | 'score' | 'trend' | null;
 type SortDirection = 'asc' | 'desc';
+type Platform = 'all' | 'coupang' | '11st';
 
 const RESET_HOUR = 9; // 오전 9시 기준 리셋
 
@@ -28,7 +29,7 @@ function safeNavigate(url: string): boolean {
     try {
         const parsed = new URL(url);
         if (!['https:', 'http:'].includes(parsed.protocol)) return false;
-        if (!parsed.hostname.endsWith('coupang.com')) return false;
+        if (!parsed.hostname.endsWith('coupang.com') && !parsed.hostname.endsWith('11st.co.kr')) return false;
         window.location.href = url;
         return true;
     } catch {
@@ -59,6 +60,7 @@ export default function CoupangPage() {
     const [normLineIdMap, setNormLineIdMap] = useState<Record<string, string>>({});
     const [workerCount, setWorkerCount] = useState<number>(2);
     const [selectedCategory, setSelectedCategory] = useState<Category>('노트북');
+    const [selectedPlatform, setSelectedPlatform] = useState<Platform>('all');
     const [updateProgressPercent, setUpdateProgressPercent] = useState<number>(0);
 
     // 병렬 워커 파라미터 읽기
@@ -149,6 +151,7 @@ export default function CoupangPage() {
                 videoCompletedAt: p.video_completed_at ?? null,
                 brand: p.brand ?? classifyBrand(p.product_name),
                 category: p.category ?? '노트북',
+                platform: (p.platform as 'coupang' | '11st') ?? 'coupang',
             }));
 
             // Auto-classify brands for products without brand
@@ -609,8 +612,15 @@ export default function CoupangPage() {
         }
     };
 
-    // 카테고리 필터링
-    const filteredByCategory = products.filter(p => (p.category ?? '노트북') === selectedCategory);
+    // 카테고리 + 플랫폼 필터링
+    const filteredByCategory = products.filter(p => {
+        if ((p.category ?? '노트북') !== selectedCategory) return false;
+        if (selectedPlatform !== 'all') {
+            const productPlatform = p.platform || 'coupang';
+            if (productPlatform !== selectedPlatform) return false;
+        }
+        return true;
+    });
 
     // Sorted products - 정렬이 없으면 원래 순서(생성일 내림차순) 유지
     const sortedProducts = sortField === null ? filteredByCategory : [...filteredByCategory].sort((a, b) => {
@@ -1202,6 +1212,27 @@ export default function CoupangPage() {
                         })}
                     </div>
 
+                    {/* 플랫폼 필터 */}
+                    <div className="flex gap-2 mb-4">
+                        {([
+                            { value: 'all' as Platform, label: '전체' },
+                            { value: 'coupang' as Platform, label: '쿠팡' },
+                            { value: '11st' as Platform, label: '11번가' },
+                        ]).map(p => (
+                            <button
+                                key={p.value}
+                                onClick={() => setSelectedPlatform(p.value)}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                                    selectedPlatform === p.value
+                                        ? 'bg-indigo-600 text-white'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                }`}
+                            >
+                                {p.value === 'coupang' ? '🟠 ' : p.value === '11st' ? '🔴 ' : ''}{p.label}
+                            </button>
+                        ))}
+                    </div>
+
                     {/* Product Table */}
                     <div className="bg-white/5 rounded-2xl border border-white/10 overflow-hidden">
                         <div className="overflow-x-auto">
@@ -1329,6 +1360,13 @@ export default function CoupangPage() {
                                                         {product.productName.length > 40
                                                             ? product.productName.substring(0, 40) + '...'
                                                             : product.productName}
+                                                        <span className={`ml-2 inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                                            product.platform === '11st'
+                                                                ? 'bg-red-100 text-red-700'
+                                                                : 'bg-orange-100 text-orange-700'
+                                                        }`}>
+                                                            {product.platform === '11st' ? '11번가' : '쿠팡'}
+                                                        </span>
                                                     </a>
                                                     <p className="text-xs text-gray-500 mt-1">
                                                         {new Date(product.lastUpdated).toLocaleDateString('ko-KR')}

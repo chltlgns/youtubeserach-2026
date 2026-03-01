@@ -17,6 +17,7 @@ export interface CoupangProduct {
     videoCompletedAt?: string | null; // 영상 생성 완료일
     brand?: string;                // 브랜드 (자동 분류)
     category?: string;             // 카테고리 (노트북, 핸드폰, 키보드, 마우스, 태블릿)
+    platform?: 'coupang' | '11st'; // 플랫폼
 }
 
 export interface CoupangState {

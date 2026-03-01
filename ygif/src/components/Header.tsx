@@ -3,13 +3,14 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ThemeSwitcher } from './ThemeProvider';
-import { Search, Download, Scissors, ShoppingCart, Youtube } from 'lucide-react';
+import { Search, Download, Scissors, ShoppingCart, Youtube, Scale } from 'lucide-react';
 
 const navItems = [
     { href: '/', label: 'Search', icon: Search },
     { href: '/download', label: 'Download', icon: Download },
     { href: '/edit', label: 'Edit', icon: Scissors },
     { href: '/coupang', label: 'Coupang', icon: ShoppingCart },
+    { href: '/price-compare', label: 'Compare', icon: Scale },
 ];
 
 export function Header() {
